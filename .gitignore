@@ -1,0 +1,12 @@
+# General
+*.o
+*.a
+*.so
+*.swp
+*.swo
+*.log
+*.tmp
+
+# Build outputs
+build/
+out/
