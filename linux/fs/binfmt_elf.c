@@ -939,12 +939,13 @@ if (mlen > flen) {
 					register u64 ra7 __asm__("a7") = 10;                            // mcall id: CREATE
 
 					__asm__ volatile("ecall"
-									: "+r"(ra0), "+r"(ra1)       /* a0=err, a1=EID on return */
+									: "+r"(ra0), "+r"(ra1)      
 									: "r"(ra2), "r"(ra3), "r"(ra4),
 									"r"(ra5), "r"(ra7)
 									: "memory");
 
-				    
+				    //set eid
+					*out_eid = ra0;
                     kfree(elf_tags);
                     if (ret) goto out;
 				}

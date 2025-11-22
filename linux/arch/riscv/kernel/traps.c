@@ -212,7 +212,7 @@ asmlinkage __visible void do_trap_ecall_u(struct pt_regs *regs)
         return;
 
     case KG_OCALL:
-       enclave traps directly to SM
+        // enclave traps directly to SM
 		pr_crit("OCALL\n");
 		asm volatile("li a7, 14\n"
 					"ecall\n");

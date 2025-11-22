@@ -140,7 +140,7 @@ static inline uintptr_t context_switch_to_enclave(uintptr_t* k_regs, uint64_t ei
 
     if(encl_arr[curr_task].state == 0){  //if new enclave
           write_csr(mepc, (uintptr_t) encl_arr[curr_task].entry); //go to start address
-          encl_arr[curr_task].state = 1; //ready
+          encl_arr[curr_task].state = 1; //running
     }
     if(encl_arr[curr_task].state == 2){ //return after ocall
           write_csr(mepc,encl_arr[curr_task].return_pc + 4);
@@ -149,7 +149,7 @@ static inline uintptr_t context_switch_to_enclave(uintptr_t* k_regs, uint64_t ei
 
     printm("mepc before return: %x\n", read_csr(mepc));
     printm("sepc before return: %x\n", read_csr(sepc));
-     uintptr_t mstatus = read_csr(mstatus);
+    uintptr_t mstatus = read_csr(mstatus);
     uintptr_t mpie_from_mie = (mstatus & MSTATUS_MIE) ? MSTATUS_MPIE : 0;
     uintptr_t new_mstatus = (mstatus & ~(MSTATUS_MPP | MSTATUS_MPIE | MSTATUS_MIE)) | mpie_from_mie;
     write_csr(mstatus, new_mstatus);
@@ -158,6 +158,7 @@ static inline uintptr_t context_switch_to_enclave(uintptr_t* k_regs, uint64_t ei
     write_csr(0x30b, 1);  //enable CFA
     
     k_regs[11] = (uintptr_t)shared_buf;
+    k_regs[10] = eid;
   return ENCLAVE_SUCCESS;
 }
 
@@ -170,7 +171,7 @@ static inline void context_switch_to_host(uintptr_t* encl_regs){
   /* restore host context */
   swap_prev_state(&encl_arr[curr_task].threads[0], encl_regs, 1); //probably not needed
   restore_host_context(encl_regs);
-  write_csr(mepc, encl_arr[curr_task].host_pc);
+  // write_csr(mepc, encl_arr[curr_task].host_pc);
 
   uintptr_t pending = read_csr(mip);
 
@@ -298,9 +299,9 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
   }
 
   static uintptr_t mcall_eenter(uintptr_t* k_regs, uint64_t eid, uint8_t* shared_buf, uintptr_t * host_regs){
-     write_csr(sscratch, k_regs[4]);
-   
-      encl_arr[curr_task].host_pc = read_csr(sepc);
+    write_csr(sscratch, k_regs[4]);
+    curr_task = get_current_task_idx(satp); //curr_task should be fetched based on eid
+    encl_arr[curr_task].host_pc = read_csr(sepc);
     if ( -1 == curr_task) {
        printm("invalid enclave\n");
        return -1;
@@ -317,7 +318,10 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
       write_csr(0x30a, 0);  //disable TEE
       write_csr(0x00b, 0);  //disable DIFT
       write_csr(0x30b, 0);  //disable CFA
+      curr_task = get_current_task_idx(satp);
       encl_arr[curr_task].state = 0; //stop the enclave
+      encl_arr[curr_task].satp = 0;
+      encl_arr[curr_task].inuse = 0;
       //no need to save return pc
       context_switch_to_host(encl_regs);
       uintptr_t mstatus = read_csr(mstatus);
@@ -329,19 +333,20 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
      __redirect_trap();
   }
 
-  static void mcall_ocall(uintptr_t * encl_regs){
+  static void mcall_ocall(uintptr_t * encl_regs, uint64_t eid){
       write_csr(0x30a, 0);  //disable TEE
       write_csr(0x00b, 0);  //disable DIFT
       write_csr(0x30b, 0);  //disable CFA
-      // set mpp to U -- return to host user process
+      curr_task = get_current_task_idx(satp);
       encl_arr[curr_task].state = 2; //running : to indicate eenter should return to last pc
       encl_arr[curr_task].return_pc = read_csr(sepc);
       context_switch_to_host(encl_regs);
+      // set mpp to U -- return to host user process
       uintptr_t mstatus = read_csr(mstatus);
       uintptr_t mpie_from_mie = (mstatus & MSTATUS_MIE) ? MSTATUS_MPIE : 0;
       uintptr_t new_mstatus = (mstatus & ~(MSTATUS_MPP | MSTATUS_MPIE | MSTATUS_MIE)) | mpie_from_mie;
       write_csr(mstatus, new_mstatus);
-      write_csr(mepc, encl_arr[0].host_pc + 4);
+      write_csr(mepc, encl_arr[curr_task].host_pc + 4);
       extern void __redirect_trap();
      __redirect_trap();
   }
@@ -729,14 +734,15 @@ static void copy_ret(uintptr_t* regs){
   }
 
   // Going towards OS
-  void user_to_supervisor_trap(uintptr_t* regs, uintptr_t mcause, uintptr_t mepc){
+  // void user_to_supervisor_trap(uintptr_t* regs, uintptr_t mcause, uintptr_t mepc){
+  void user_to_supervisor_trap(uintptr_t* regs, uint64_t eid){
      cycles1 = read_csr(0xb00);
     uintptr_t satp = read_csr(satp);
     curr_task = get_current_task_idx(satp);
     uintptr_t scause = read_csr(scause);
     if(scause == 8){
       if(*(regs + 17) == 0x103){
-         mcall_ocall(regs);
+         mcall_ocall(regs, eid);
       }
       else if(*(regs + 17) == 0x102){
          mcall_eexit(regs);
@@ -916,6 +922,8 @@ send_ipi:
 
     case SBI_EENTER:
       retval = mcall_eenter(regs, arg0, (uint8_t *)arg1, (uintptr_t *) arg2);
+      if (regs[0]) /* preserve a0: a0 contains eid, a1 contains shared_buf */
+        return;
       break;
 
     case SBI_EEXIT:
@@ -924,7 +932,7 @@ send_ipi:
       break;
 
     case SBI_OCALL:
-      mcall_ocall(regs);
+      mcall_ocall(regs, arg0);
       retval = 0;
       break;
 
