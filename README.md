@@ -57,3 +57,7 @@ This repository contains Kingsguard project for RISC-V on gem5.
   ```
   (to run KingsGuard with SassCache implementation)
 
+
+Follow this repo to set up the disk image: https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md
+Make sure the path to disk image and kernel is updated to the path on your system in the riscv-fs.py/riscv-fs-sass.py configuration files.
+
