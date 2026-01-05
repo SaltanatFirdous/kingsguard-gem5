@@ -188,7 +188,8 @@ class SectorTags : public BaseTags
     CacheBlk* findVictim(const CacheBlk::KeyType &key,
                          const std::size_t size,
                          std::vector<CacheBlk*>& evict_blks,
-                         const uint64_t partition_id) override;
+                         const uint64_t partition_id,
+			 uint64_t securityDomain) override;
 
     /**
      * Calculate a block's offset in a sector from the address.

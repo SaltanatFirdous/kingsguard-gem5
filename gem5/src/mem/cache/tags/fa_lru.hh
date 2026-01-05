@@ -223,7 +223,8 @@ class FALRU : public BaseTags
     CacheBlk* findVictim(const CacheBlk::KeyType& key,
                          const std::size_t size,
                          std::vector<CacheBlk*>& evict_blks,
-                         const uint64_t partition_id=0) override;
+                         const uint64_t partition_id=0,
+			 uint64_t securityDomain=0) override;
 
     /**
      * Insert the new block into the cache and update replacement data.

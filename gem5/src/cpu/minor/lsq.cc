@@ -1258,11 +1258,13 @@ LSQ::tryToSendToTransfers(LSQRequestPtr request)
             SimpleThread &thread = *cpu.threads[request->inst->id.threadId];
             ExecContext context(cpu, thread, execute, request->inst);
             uint8_t tag_val = context.getRegTaint(request->inst->staticInst.get(), 0, prv, taint);
+            uint32_t sdid = tc->readMiscReg(gem5::RiscvISA::MISCREG_SATP);
          if(is_load){
             
                 // printf("load instruction\n");
                 RequestPtr tag_req = std::make_shared<Request>(
                     tag_paddr, 1, 0, cpu.dataRequestorId()); // 1-byte read
+                    tag_req->setSassSecurityDomain(sdid);
                 PacketPtr tag_pkt = new Packet(tag_req, MemCmd::ReadReq);
                 uint8_t* tagBuf = new uint8_t[1];
                 tag_pkt->dataDynamic(tagBuf);
@@ -1281,6 +1283,7 @@ LSQ::tryToSendToTransfers(LSQRequestPtr request)
                 // ExecContext context(cpu, thread, execute, request->inst);
                 RequestPtr tag_req = std::make_shared<Request>(
                 tag_paddr, 1, 0, cpu.dataRequestorId()); // 1-byte write
+                tag_req->setSassSecurityDomain(sdid);
                 PacketPtr tag_pkt = new Packet(tag_req, MemCmd::WriteReq);
                 int src = request->inst->staticInst->srcRegIdx(0);
                 const RegId &dst = request->inst->staticInst->destRegIdx(0); //dest reg for store will have the address

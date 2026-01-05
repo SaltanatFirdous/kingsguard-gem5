@@ -153,6 +153,8 @@ class CacheBlk : public TaggedEntry
     std::list<Lock> lockList;
 
   public:
+    Addr getAddr() const { return _addr; }
+    
     CacheBlk() : TaggedEntry()
     {
         invalidate();
@@ -212,6 +214,7 @@ class CacheBlk : public TaggedEntry
         setRefCount(0);
         setSrcRequestorId(Request::invldRequestorId);
         lockList.clear();
+        _addr = MaxAddr;
     }
 
     /**
@@ -460,6 +463,7 @@ class CacheBlk : public TaggedEntry
     }
 
   protected:
+     Addr _addr = MaxAddr; //store fulll address for regeneration
     /** The current coherence status of this block. @sa CoherenceBits */
     unsigned coherence = 0;
 

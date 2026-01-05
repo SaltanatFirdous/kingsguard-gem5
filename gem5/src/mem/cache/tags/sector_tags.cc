@@ -156,7 +156,7 @@ SectorTags::invalidate(CacheBlk *blk)
 CacheBlk*
 SectorTags::accessBlock(const PacketPtr pkt, Cycles &lat)
 {
-    CacheBlk *blk = findBlock({pkt->getAddr(), pkt->isSecure()});
+    CacheBlk *blk = findBlock({pkt->getAddr(), pkt->isSecure(), pkt->req->getSassSecurityDomain()});
 
     // Access all tags in parallel, hence one in each way.  The data side
     // either accesses all blocks in parallel, or one block sequentially on
@@ -288,7 +288,8 @@ CacheBlk*
 SectorTags::findVictim(const CacheBlk::KeyType &key,
                        const std::size_t size,
                        std::vector<CacheBlk*>& evict_blks,
-                       const uint64_t partition_id)
+                       const uint64_t partition_id,
+		       uint64_t securityDomain)
 {
     // Get possible entries to be victimized
     std::vector<ReplaceableEntry*> sector_entries =

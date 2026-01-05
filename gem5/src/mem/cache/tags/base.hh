@@ -285,7 +285,8 @@ class BaseTags : public ClockedObject
     virtual CacheBlk* findVictim(const CacheBlk::KeyType &key,
                                  const std::size_t size,
                                  std::vector<CacheBlk*>& evict_blks,
-                                 const uint64_t partition_id=0) = 0;
+                                 const uint64_t partition_id=0,
+				 uint64_t securityDomain=0) = 0;
 
     /**
      * Access block and update replacement data. May not succeed, in which case

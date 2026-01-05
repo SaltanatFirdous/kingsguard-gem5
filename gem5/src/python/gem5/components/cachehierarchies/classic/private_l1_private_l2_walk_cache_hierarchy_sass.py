@@ -1,4 +1,3 @@
-# -*- mode:python -*-
 # Copyright (c) 2024 Arm Limited
 # All rights reserved.
 #
@@ -11,7 +10,7 @@
 # unmodified and in its entirety in all distributions of the software,
 # modified or unmodified, in source code or in binary form.
 #
-# Copyright (c) 2018 Inria
+# Copyright (c) 2021 The Regents of the University of California
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,56 +36,46 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from m5.params import *
-from m5.proxy import *
-from m5.SimObject import SimObject
+from m5.objects import BaseCPU
+
+from ....utils.override import *
+from ...boards.abstract_board import AbstractBoard
+from .caches.mmu_cache import MMUCache
+from .private_l1_private_l2_cache_hierarchy_sass import (
+     PrivateL1PrivateL2CacheHierarchySass,
+)
 
 
-class BaseIndexingPolicy(SimObject):
-    type = "BaseIndexingPolicy"
-    abstract = True
-    cxx_class = "gem5::IndexingPolicyTemplate<gem5::AddrTypes>"
-    cxx_header = "mem/cache/tags/indexing_policies/base.hh"
-    cxx_template_params = ["class Types"]
+class PrivateL1PrivateL2WalkCacheHierarchySass(PrivateL1PrivateL2CacheHierarchySass):
+    """
+    A cache setup where each core has a private L1 Data and Instruction Cache,
+    and a private L2 cache and a Walk Cache for the Table Walker
+    """
 
-    # Get the associativity
-    assoc = Param.Int(Parent.assoc, "associativity")
+    def __init__(self, *args, **kwargs) -> None:
+        PrivateL1PrivateL2CacheHierarchySass.__init__(self, *args, **kwargs)
 
+    @overrides(PrivateL1PrivateL2CacheHierarchySass)
+    def incorporate_cache(self, board: AbstractBoard) -> None:
+        # ITLB Page walk caches
+        self.iptw_caches = [
+            MMUCache(size="8KiB")
+            for _ in range(board.get_processor().get_num_cores())
+        ]
+        # DTLB Page walk caches
+        self.dptw_caches = [
+            MMUCache(size="8KiB")
+            for _ in range(board.get_processor().get_num_cores())
+        ]
 
-class SetAssociative(BaseIndexingPolicy):
-    type = "SetAssociative"
-    cxx_class = "gem5::SetAssociative"
-    cxx_header = "mem/cache/tags/indexing_policies/set_associative.hh"
+        super().incorporate_cache(board)
 
-    # Get the size from the parent (cache)
-    size = Param.MemorySize(Parent.size, "capacity in bytes")
+        for i, cpu in enumerate(board.get_processor().get_cores()):
+            self.iptw_caches[i].mem_side = self.l2buses[i].cpu_side_ports
+            self.dptw_caches[i].mem_side = self.l2buses[i].cpu_side_ports
 
-    # Get the entry size from the parent (tags)
-    entry_size = Param.Int(Parent.entry_size, "entry size in bytes")
-
-
-class SkewedAssociative(BaseIndexingPolicy):
-    type = "SkewedAssociative"
-    cxx_class = "gem5::SkewedAssociative"
-    cxx_header = "mem/cache/tags/indexing_policies/skewed_associative.hh"
-
-    # Get the size from the parent (cache)
-    size = Param.MemorySize(Parent.size, "capacity in bytes")
-
-    # Get the entry size from the parent (tags)
-    entry_size = Param.Int(Parent.entry_size, "entry size in bytes")
-
-
-class SassAssociative(BaseIndexingPolicy):
-    type = "SassAssociative"
-    cxx_class = "gem5::SassAssociative"
-    cxx_header = "mem/cache/tags/indexing_policies/sass_associative.hh"
-
-    # Get the size from the parent (cache)
-    size = Param.MemorySize(Parent.size, "capacity in bytes")
-
-    # Get the entry size from the parent (tags)
-    entry_size = Param.Int(Parent.entry_size, "entry size in bytes")
-
-
-
+    def _connect_table_walker(self, cpu_id: int, cpu: BaseCPU) -> None:
+        cpu.connect_walker_ports(
+            self.iptw_caches[cpu_id].cpu_side,
+            self.dptw_caches[cpu_id].cpu_side,
+        )

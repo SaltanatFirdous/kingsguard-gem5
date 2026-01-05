@@ -61,6 +61,14 @@ class TaggedSetAssociative(TaggedIndexingPolicy):
     # Get the entry size from the parent (tags)
     entry_size = Param.Int(Parent.entry_size, "entry size in bytes")
 
+class TaggedSassAssociative(TaggedIndexingPolicy):
+    type = "TaggedSassAssociative"
+    cxx_class = "gem5::TaggedSassAssociative"
+    cxx_header = "mem/cache/tags/indexing_policies/tagged_sass_associative.hh"
+
+    size = Param.MemorySize(Parent.size, "capacity in bytes")
+    entry_size = Param.Int(Parent.entry_size, "entry size in bytes")
+
 
 class BaseTags(ClockedObject):
     type = "BaseTags"
@@ -120,7 +128,10 @@ class BaseSetAssoc(BaseTags):
     replacement_policy = Param.BaseReplacementPolicy(
         Parent.replacement_policy, "Replacement policy"
     )
-
+class SassAssoc(BaseSetAssoc):
+    type = 'SassAssoc'
+    cxx_header = "mem/cache/tags/sass_assoc.hh"
+    cxx_class = "gem5::SassAssoc"
 
 class SectorTags(BaseTags):
     type = "SectorTags"

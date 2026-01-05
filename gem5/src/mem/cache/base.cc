@@ -53,6 +53,7 @@
 #include "debug/CacheRepl.hh"
 #include "debug/CacheVerbose.hh"
 #include "debug/HWPrefetch.hh"
+//#include "debug/Sasscache.hh"
 #include "mem/cache/compressors/base.hh"
 #include "mem/cache/mshr.hh"
 #include "mem/cache/prefetch/base.hh"
@@ -417,7 +418,7 @@ BaseCache::recvTimingReq(PacketPtr pkt)
         // Now that the write is here, mark it accessible again, so the
         // write will succeed.  LockedRMWReadReq brings the block in in
         // exclusive mode, so we know it was previously writable.
-        CacheBlk *blk = tags->findBlock({pkt->getAddr(), pkt->isSecure()});
+        CacheBlk *blk = tags->findBlock({pkt->getAddr(), pkt->isSecure(), pkt->req->getSassSecurityDomain()});
         assert(blk && blk->isValid());
         assert(!blk->isSet(CacheBlk::WritableBit) &&
                !blk->isSet(CacheBlk::ReadableBit));
@@ -505,6 +506,13 @@ BaseCache::recvTimingResp(PacketPtr pkt)
         DPRINTF(Cache, "%s: Cache received %s with error\n", __func__,
                 pkt->print());
     }
+//     if (is_error) {
+//     printf("CACHE-RESP %s: cmd=%s addr=%#lx size=%d is_read=%d is_write=%d pc=%#lx\n",
+//        name().c_str(), pkt->cmdString(), pkt->getAddr(), pkt->getSize(),
+//        pkt->isRead(), pkt->isWrite(),
+//        pkt->req ? pkt->req->getPC() : 0);
+
+// }
 
     DPRINTF(Cache, "%s: Handling response %s\n", __func__,
             pkt->print());
@@ -551,7 +559,7 @@ BaseCache::recvTimingResp(PacketPtr pkt)
     // the response is an invalidation
     assert(!mshr->wasWholeLineWrite || pkt->isInvalidate());
 
-    CacheBlk *blk = tags->findBlock({pkt->getAddr(), pkt->isSecure()});
+    CacheBlk *blk = tags->findBlock({pkt->getAddr(), pkt->isSecure(), pkt->req->getSassSecurityDomain()});
 
     if (is_fill && !is_error) {
         DPRINTF(Cache, "Block for addr %#llx being updated in Cache\n",
@@ -720,7 +728,7 @@ BaseCache::functionalAccess(PacketPtr pkt, bool from_cpu_side)
 {
     Addr blk_addr = pkt->getBlockAddr(blkSize);
     bool is_secure = pkt->isSecure();
-    CacheBlk *blk = tags->findBlock({pkt->getAddr(), is_secure});
+    CacheBlk *blk = tags->findBlock({pkt->getAddr(), is_secure, pkt->req->getSassSecurityDomain()});
     MSHR *mshr = mshrQueue.findMatch(blk_addr, is_secure);
 
     pkt->pushLabel(name());
@@ -911,7 +919,7 @@ BaseCache::getNextQueueEntry()
         PacketPtr pkt = prefetcher->getPacket();
         if (pkt) {
             Addr pf_addr = pkt->getBlockAddr(blkSize);
-            if (tags->findBlock({pf_addr, pkt->isSecure()})) {
+            if (tags->findBlock({pf_addr, pkt->isSecure(), pkt->req->getSassSecurityDomain()})) {
                 DPRINTF(HWPrefetch, "Prefetch %#x has hit in cache, "
                         "dropped.\n", pf_addr);
                 prefetcher->pfHitInCache();
@@ -985,7 +993,7 @@ BaseCache::handleEvictions(std::vector<CacheBlk*> &evict_blks,
 
 bool
 BaseCache::updateCompressionData(CacheBlk *&blk, const uint64_t* data,
-                                 PacketList &writebacks)
+                                 PacketList &writebacks, uint64_t securityDomain)
 {
     // tempBlock does not exist in the tags, so don't do anything for it.
     if (blk == tempBlock) {
@@ -1035,7 +1043,7 @@ BaseCache::updateCompressionData(CacheBlk *&blk, const uint64_t* data,
             victim = tags->findVictim(
                 {regenerateBlkAddr(blk), blk->isSecure()},
                 compression_size, evict_blks,
-                blk->getPartitionId());
+                blk->getPartitionId(), securityDomain);
 
             // It is valid to return nullptr if there is no victim
             if (!victim) {
@@ -1359,7 +1367,7 @@ BaseCache::access(PacketPtr pkt, CacheBlk *&blk, Cycles &lat,
             // a smaller size, and now it doesn't fit the entry anymore).
             // If that is the case we might need to evict blocks.
             if (!updateCompressionData(blk, pkt->getConstPtr<uint64_t>(),
-                writebacks)) {
+                writebacks, pkt->req->getSassSecurityDomain())) {
                 invalidateBlock(blk);
                 return false;
             }
@@ -1438,7 +1446,7 @@ BaseCache::access(PacketPtr pkt, CacheBlk *&blk, Cycles &lat,
             // a smaller size, and now it doesn't fit the entry anymore).
             // If that is the case we might need to evict blocks.
             if (!updateCompressionData(blk, pkt->getConstPtr<uint64_t>(),
-                writebacks)) {
+                writebacks, pkt->req->getSassSecurityDomain())) {
                 invalidateBlock(blk);
                 return false;
             }
@@ -1561,6 +1569,11 @@ BaseCache::handleFill(PacketPtr pkt, CacheBlk *blk, PacketList &writebacks,
     // Block is guaranteed to be valid at this point
     assert(blk->isValid());
     assert(blk->isSecure() == is_secure);
+    if (regenerateBlkAddr(blk) != addr) {
+	        printf("regen mismatch: addr=%#x regen=%#x blkTag=%#x secure=%d\n",
+				          addr, regenerateBlkAddr(blk), blk->getTag(), blk->isSecure());
+    }
+
     assert(regenerateBlkAddr(blk) == addr);
 
     blk->setCoherenceBits(CacheBlk::ReadableBit);
@@ -1622,7 +1635,23 @@ BaseCache::allocateBlock(const PacketPtr pkt, PacketList &writebacks)
 {
     // Get address
     const Addr addr = pkt->getAddr();
+     const SID securityDomain = pkt->req->getSassSecurityDomain();
+    //  if (securityDomain != 0) {
+    // std::cerr << "BASE.CC sd=" << std::hex << securityDomain << std::dec
+    //           << " cmd=" << pkt->cmd.toString()
+    //           << " addr=" << std::hex << pkt->getAddr() << std::dec
+    //           << " hasReq=" << (pkt->req != nullptr)
+    //           << " requestorId=" << pkt->requestorId()
+    //           << "\n";
+    // }
+    // SID securityDomain = 0;
+    // if (pkt->req)
+    //     securityDomain = pkt->req->getSassSecurityDomain();
 
+    // // Coherence traffic must not depend on per-thread sdid
+    // if (!pkt->req || !pkt->cmd.isRequest()) {
+    //     securityDomain = 0;
+    // }
     // Get secure bit
     const bool is_secure = pkt->isSecure();
 
@@ -1650,7 +1679,7 @@ BaseCache::allocateBlock(const PacketPtr pkt, PacketList &writebacks)
     // Find replacement victim
     std::vector<CacheBlk*> evict_blks;
     CacheBlk *victim = tags->findVictim({addr, is_secure}, blk_size_bits,
-                                        evict_blks, partition_id);
+                                        evict_blks, partition_id, securityDomain);
 
     // It is valid to return nullptr if there is no victim
     if (!victim)
@@ -1913,7 +1942,7 @@ BaseCache::sendMSHRQueuePacket(MSHR* mshr)
         }
     }
 
-    CacheBlk *blk = tags->findBlock({mshr->blkAddr, mshr->isSecure});
+    CacheBlk *blk = tags->findBlock({mshr->blkAddr, mshr->isSecure, tgt_pkt->req->getSassSecurityDomain()});
 
     // either a prefetch that is not present upstream, or a normal
     // MSHR request, proceed to get the packet to send downstream

@@ -170,11 +170,14 @@ class BaseSetAssoc : public BaseTags
     CacheBlk* findVictim(const CacheBlk::KeyType& key,
                          const std::size_t size,
                          std::vector<CacheBlk*>& evict_blks,
-                         const uint64_t partition_id=0) override
+                         const uint64_t partition_id=0,
+			 uint64_t securityDomain=0) override
     {
         // Get possible entries to be victimized
+        CacheBlk::KeyType domKey = key;                 // copy
+        domKey.securityDomain = securityDomain; 
         std::vector<ReplaceableEntry*> entries =
-            indexingPolicy->getPossibleEntries(key);
+            indexingPolicy->getPossibleEntries(domKey);
 
         // Filter entries based on PartitionID
         if (partitionManager) {

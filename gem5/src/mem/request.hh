@@ -464,6 +464,8 @@ class Request : public Extensible<Request>
 
     /** A pointer to an atomic operation */
     AtomicOpFunctorPtr atomicOpFunctor = nullptr;
+    /** Sasscache identifier content to identify the security domain the request belongs to */
+    SID _security_domain = 0;
 
     LocalAccessor _localAccessor;
 
@@ -606,6 +608,19 @@ class Request : public Extensible<Request>
         _paddr = paddr;
         privateFlags.set(VALID_PADDR);
     }
+    void setSassSecurityDomain(SID sid)
+    {
+	// currState->ttbcr.pd0
+	 _security_domain = sid;
+    //  printf("setting sdid to %d\n", _security_domain);
+    }
+
+    /**
+    */
+    SID getSassSecurityDomain()
+    {
+        return _security_domain;
+     }
 
     /**
      * Generate two requests as if this request had been split into two

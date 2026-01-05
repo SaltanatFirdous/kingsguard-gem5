@@ -55,6 +55,7 @@ CacheBlk::insert(const KeyType &tag,
     assert(!isValid());
 
     insert(tag);
+    _addr = tag.address;
 
     // Set source requestor ID
     setSrcRequestorId(src_requestor_ID);

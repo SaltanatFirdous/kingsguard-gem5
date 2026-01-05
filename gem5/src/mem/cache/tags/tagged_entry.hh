@@ -60,6 +60,7 @@ class TaggedTypes
     {
         Addr address;
         bool secure;
+        uint64_t securityDomain = 0;
     };
     using Params = TaggedIndexingPolicyParams;
 };

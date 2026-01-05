@@ -388,12 +388,29 @@ class SimpleThread : public ThreadState, public ThreadContext
     //ift
 
     uint8_t
-    getRegTaint(const RegId &arch_reg, int prv = 1, int taint = 0) const
-    {
-        const RegId reg = arch_reg.flatten(*isa);
-        const RegIndex idx = reg.index();
-        const auto &reg_file = regFiles[reg.classValue()];
-        return reg_file.getTaint(idx);
+        getRegTaint(const RegId &arch_reg, int prv = 1, int taint = 0) const
+        {
+            const RegId reg = arch_reg.flatten(*isa);
+            const RegIndex idx = reg.index();
+            const RegClassType cls = reg.classValue();
+            switch (cls) {
+                case IntRegClass:
+                case FloatRegClass:
+                case VecRegClass:
+                case VecElemClass:
+                case CCRegClass:
+                    break;
+                default:
+                    return 0; // MiscRegClass, InvalidRegClass, etc.
+        }
+            const auto &reg_file = regFiles[reg.classValue()];
+            // if(prv == 0 && taint ==1)
+            //  printf("before regfile \n");
+            if (idx >= reg_file.size()) {
+            panic("getRegTaint OOB: class=%d idx=%u size=%u\n",
+                (int)cls, (unsigned)idx, (unsigned)reg_file.size());
+        }
+            return reg_file.getTaint(idx);
     }
 
     void

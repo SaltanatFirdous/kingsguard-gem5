@@ -145,7 +145,7 @@ FALRU::accessBlock(const PacketPtr pkt, Cycles &lat,
 {
     CachesMask mask = 0;
     FALRUBlk* blk =
-        static_cast<FALRUBlk*>(findBlock({pkt->getAddr(), pkt->isSecure()}));
+        static_cast<FALRUBlk*>(findBlock({pkt->getAddr(), pkt->isSecure(), pkt->req->getSassSecurityDomain()}));
 
     // If a cache hit
     if (blk && blk->isValid()) {
@@ -196,7 +196,8 @@ FALRU::findBlockBySetAndWay(int set, int way) const
 CacheBlk*
 FALRU::findVictim(const CacheBlk::KeyType& key, const std::size_t size,
                   std::vector<CacheBlk*>& evict_blks,
-                  const uint64_t partition_id)
+                  const uint64_t partition_id,
+		  uint64_t securityDomain)
 {
     // The victim is always stored on the tail for the FALRU
     FALRUBlk* victim = tail;

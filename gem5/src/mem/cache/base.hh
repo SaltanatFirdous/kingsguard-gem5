@@ -733,7 +733,7 @@ class BaseCache : public ClockedObject
      * @return Whether operation is successful or not.
      */
     bool updateCompressionData(CacheBlk *&blk, const uint64_t* data,
-                               PacketList &writebacks);
+                               PacketList &writebacks, uint64_t securityDomain);
 
     /**
      * Perform any necessary updates to the block and perform any data
