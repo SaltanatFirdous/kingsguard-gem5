@@ -34,6 +34,7 @@ This repository contains Kingsguard project for RISC-V on gem5.
 (generates vmlinux)
 
 - `riscv-pk`: Modified version of the RISC-V Proxy Kernel.
+
   Run (in riscv-pk directory):
   ```bash
   mkdir build
@@ -47,11 +48,13 @@ This repository contains Kingsguard project for RISC-V on gem5.
   ```
 
 - `gem5`: Modified gem5 simulator used to model the Kingsguard architecture.
+
   Run (in gem5 directory):
   ```bash
   scons build/RISCV/gem5.opt -j<n>
   ```
   To run a simulation of KingsGuard:
+
   Inside the configuration script (gem5/configs/example/gem5_library/riscv-fs.py), set the path to kernel and disk image based on your system.
   ```bash
   ./build/RISCV/gem5.opt configs/example/gem5_library/riscv-fs.py
