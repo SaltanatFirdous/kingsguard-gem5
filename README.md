@@ -21,23 +21,27 @@ This repository contains Kingsguard project for RISC-V on gem5.
 
 - `linux`: Linux kernel adapted for KingsGuard.
 
-  Run:
+  Run (in linux directory):
 
   ```bash
   make ARCH=riscv CROSS_COMPILE=riscv64-unknown-linux-gnu- defconfig
 
-(in linux directory)
+
 
 ```bash
-  make ARCH=riscv CROSS_COMPILE=riscv64-unknown-linux-gnu-  all -j16
+  make ARCH=riscv CROSS_COMPILE=riscv64-unknown-linux-gnu-  all -j<n>
 ```
 (generates vmlinux)
 
 - `riscv-pk`: Modified version of the RISC-V Proxy Kernel.
+  Run (in riscv-pk directory):
+  ```bash
+  mkdir build
+  cd build
+  ```
   ```bash
   ../configure --host=riscv64-unknown-linux-gnu --with-payload=<path to vmlinux> --prefix=<path to riscv cross compiler>
   ```
-  (in riscv-pk/build)
   ```bash
   make -j<n>
   ```
