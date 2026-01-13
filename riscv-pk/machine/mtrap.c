@@ -300,6 +300,7 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
 
   static uintptr_t mcall_eenter(uintptr_t* k_regs, uint64_t eid, uint8_t* shared_buf, uintptr_t * host_regs){
     write_csr(sscratch, k_regs[4]);
+    uint64_t satp = read_csr(satp);
     curr_task = get_current_task_idx(satp); //curr_task should be fetched based on eid
     encl_arr[curr_task].host_pc = read_csr(sepc);
     if ( -1 == curr_task) {
@@ -318,6 +319,7 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
       write_csr(0x30a, 0);  //disable TEE
       write_csr(0x00b, 0);  //disable DIFT
       write_csr(0x30b, 0);  //disable CFA
+      uint64_t satp = read_csr(satp);
       curr_task = get_current_task_idx(satp);
       encl_arr[curr_task].state = 0; //stop the enclave
       encl_arr[curr_task].satp = 0;
@@ -337,6 +339,7 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
       write_csr(0x30a, 0);  //disable TEE
       write_csr(0x00b, 0);  //disable DIFT
       write_csr(0x30b, 0);  //disable CFA
+      uint64_t satp = read_csr(satp);
       curr_task = get_current_task_idx(satp);
       encl_arr[curr_task].state = 2; //running : to indicate eenter should return to last pc
       encl_arr[curr_task].return_pc = read_csr(sepc);
