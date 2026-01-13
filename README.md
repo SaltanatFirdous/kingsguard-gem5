@@ -47,20 +47,21 @@ This repository contains Kingsguard project for RISC-V on gem5.
   ```
 
 - `gem5`: Modified gem5 simulator used to model the Kingsguard architecture.
-  Run:
+  Run (in gem5 directory):
   ```bash
   scons build/RISCV/gem5.opt -j<n>
   ```
-  (to build gem5 for RISCV)
+  To run a simulation of KingsGuard:
+  Inside the configuration script (gem5/configs/example/gem5_library/riscv-fs.py), set the path to kernel and disk image based on your system.
   ```bash
   ./build/RISCV/gem5.opt configs/example/gem5_library/riscv-fs.py
   ```
-  (to run a simulation of KingsGuard)
+  To run KingsGuard with SassCache implementation:
+
   ```bash
   ./build/RISCV/gem5.opt configs/example/gem5_library/riscv-fs-sass.py
   ```
-  (to run KingsGuard with SassCache implementation)
-
+  
 
 Follow this repo to set up the disk image: https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md
 The host and enclave binaries should be added to the disk image before booting. Once Linux boots, run the host binary.
