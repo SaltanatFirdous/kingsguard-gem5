@@ -238,7 +238,7 @@ const ThreadID InvalidThreadID = (ThreadID)-1;
 /** Globally unique thread context ID */
 typedef int ContextID;
 const ContextID InvalidContextID = (ContextID)-1;
-
+typedef uint64_t SID;
 /**
  * Port index/ID type, and a symbolic name for an invalid port id.
  */

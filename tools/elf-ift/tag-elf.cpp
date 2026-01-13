@@ -90,7 +90,7 @@ class ElfUtils {
     #endif
 	#if 1
     printf("hash section start\n");	
-	char * hash = 0;	//add computed hash of binary here
+	char * hash = 92413188156624a2ee3f3961a27883f6fae2b880c3d2c02a81bd56c4d0e47b3d;	//add computed hash of binary here
     auto *hash_section = writer.sections.add(".data.hash");
     hash_section->set_addr_align(req_align);
     hash_section->set_address(0x80e00000);
