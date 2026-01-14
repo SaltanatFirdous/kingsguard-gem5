@@ -17,18 +17,19 @@ cd tools/Partition
 make
 ```
      
-### 2. `tools/declass/`: This folder contains scripts to perform static analysis on RISC-V Binaries to enumerate all valid control flow paths within a program and compute cryptographic measurements (hashes) for those paths.
+### 2. `tools/declass/`: 
+This folder contains scripts to perform static analysis on RISC-V Binaries to enumerate all valid control flow paths within a program and compute cryptographic measurements (hashes) for those paths.
 ### Prerequisites
-# System Packages
+### System Packages
 		- python3 
 		- riscv gnu toolchain
-# Python dependencies
+### Python dependencies
 		- pyelftools
 		- capstone
 ```bash
     pip install capstone pyelftools
 ```
-## Usage
+### Usage
 The workflow involves three steps: compiling the binary, identifying control flow paths, and computing their hashes.
 ### 1. Compiling the binary
 
