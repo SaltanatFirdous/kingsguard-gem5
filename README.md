@@ -17,8 +17,7 @@ cd tools/Partition
 make
 ```
      
-- `tools/declass/`: This folder contains scripts to perform static analysis on RISC-V Binaries to enumerate all valid control flow paths within a program and compute cryptographic measurements (hashes) for those paths.
-## Installation
+### `tools/declass/`: This folder contains scripts to perform static analysis on RISC-V Binaries to enumerate all valid control flow paths within a program and compute cryptographic measurements (hashes) for those paths.
 ### Prerequisites
 	#### System Packages
 		- python3 
