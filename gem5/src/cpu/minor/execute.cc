@@ -69,7 +69,7 @@
 
 
 
-static std::ofstream branchLog("branch_log.txt");//log the branches 
+static std::ofstream branchLog("branch_log11.txt");//log the branches 
 class BranchHash {//added
     SHA256_CTX ctx;
 public:
@@ -88,22 +88,20 @@ public:
         std::stringstream out;
         for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i)
             out << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
-        
-
         return out.str();
     }
 };
-
+static std::unordered_map<gem5::ThreadID, gem5::Addr> seen_loop_pcs;
 static BranchHash cumulativeBranchHash;
 static int prev_cfa_val = 0;
 using gem5::RiscvISA::MISCREG_CFA; //added for flag
 namespace {
-    constexpr uint64_t FFT_PROG_TEXT_START    = 0x00410000;
-    constexpr uint64_t FFT_PROG_TEXT_END      = 0x00410174;
-   // constexpr uint64_t FFT_PROG_RODATA_START  = 0x0007d000;
-   // constexpr uint64_t FFT_PROG_RODATA_END    = 0x00081000;
-   // constexpr uint64_t FFT_PROG_DATA_START    = 0x00081000;
-   // constexpr uint64_t FFT_PROG_DATA_END      = 0x00083000;
+  constexpr uint64_t FFT_PROG_TEXT_START    = 0x000410000;
+    constexpr uint64_t FFT_PROG_TEXT_END      = 0x00410200;
+    //constexpr uint64_t FFT_PROG_RODATA_START  = 0x0007d000;
+    //constexpr uint64_t FFT_PROG_RODATA_END    = 0x00081000;
+    //constexpr uint64_t FFT_PROG_DATA_START    = 0x00081000;
+    //constexpr uint64_t FFT_PROG_DATA_END      = 0x00083000;
 }
 namespace gem5
 {
@@ -348,82 +346,76 @@ Execute::tryToBranch(MinorDynInstPtr inst, Fault fault, BranchData &branch)
         reason = BranchData::NoBranch;
     }
 
-        // --- BEGIN: cumulative branch hash hook ---
-    // Only on real instruction completion (no fault), and only for
-    // direct control-flow (skip indirects like JALR/RET).
-    if (fault == NoFault &&
-        inst->isInst() &&
-        inst->staticInst->isControl())
-        //!inst->staticInst->isIndirectCtrl())
-    {
-        const uint64_t src = pc_before->instAddr();  // pre-commit PC
-        const uint64_t tgt = target->instAddr();     // committed next PC
+// --- BEGIN: cumulative branch hash hook (with BNEZ loop dedup) ---
+if (fault == NoFault &&
+    inst->isInst() &&
+    inst->staticInst->isControl())  // Direct control (drop indirect filter)
+{
+    const uint64_t src = pc_before->instAddr();
+    const uint64_t tgt = target->instAddr();
 
-        // Optional filter: only when your CSR gate is enabled AND in user mode.
-        // (RISC-V privilege: PRV_U == 0)
-        auto *tc = cpu.getContext(inst->id.threadId);
-        const uint64_t cfa = tc->readMiscRegNoEffect(gem5::RiscvISA::MISCREG_CFA);
-        const int prv      = tc->readMiscRegNoEffect(gem5::RiscvISA::MISCREG_PRV);
-        //const bool currCfa = (cfa == 1);
-        auto isInFftRegion = [](uint64_t addr) -> bool {
-        return (addr >= FFT_PROG_TEXT_START && addr < FFT_PROG_TEXT_END);
-            //    (addr >= FFT_PROG_RODATA_START && addr < FFT_PROG_RODATA_END) ||
-            //    (addr >= FFT_PROG_DATA_START && addr < FFT_PROG_DATA_END);
-    };
-         int curr_cfa_val = (int)cfa;
-
-        if (curr_cfa_val == 1 && prv == 0 &&
-        isInFftRegion(src) && isInFftRegion(tgt)) {
-        cumulativeBranchHash.update(src, tgt);
-        if (branchLog) {
-            branchLog << "[MinorCPU] USER branch: "
-                      << "Src: 0x" << std::hex << src
-                      << ", Tgt: 0x" << tgt
-                      << ", HashSoFar: " << cumulativeBranchHash.finalize()
-                      << std::dec << '\n';
-        }
-      auto load64_be = [](const unsigned char *p) -> uint64_t {
-        return (static_cast<uint64_t>(p[0]) << 56) |
-               (static_cast<uint64_t>(p[1]) << 48) |
-               (static_cast<uint64_t>(p[2]) << 40) |
-               (static_cast<uint64_t>(p[3]) << 32) |
-               (static_cast<uint64_t>(p[4]) << 24) |
-               (static_cast<uint64_t>(p[5]) << 16) |
-               (static_cast<uint64_t>(p[6]) << 8)  |
-               (static_cast<uint64_t>(p[7]));
-    };
-
-    // Split 32-byte digest into four 64-bit values
-    // static BranchHash hash= cumulativeBranchHash.finalize();
-    std::string out = cumulativeBranchHash.finalize();
-    const unsigned char* hash =
-    reinterpret_cast<const unsigned char*>(out.data());
-    uint64_t h0 = load64_be(hash +  0);
-    uint64_t h1 = load64_be(hash +  8);
-    uint64_t h2 = load64_be(hash + 16);
-    uint64_t h3 = load64_be(hash + 24);
-
-    // Write to HASH CSRs
     auto *tc = cpu.getContext(inst->id.threadId);
-    tc->setMiscRegNoEffect(gem5::RiscvISA::MISCREG_HASH0, h0);
-    tc->setMiscRegNoEffect(gem5::RiscvISA::MISCREG_HASH1, h1);
-    tc->setMiscRegNoEffect(gem5::RiscvISA::MISCREG_HASH2, h2);
-    tc->setMiscRegNoEffect(gem5::RiscvISA::MISCREG_HASH3, h3);
-    }
+    const uint64_t cfa = tc->readMiscRegNoEffect(gem5::RiscvISA::MISCREG_CFA);
+    const int prv = tc->readMiscRegNoEffect(gem5::RiscvISA::MISCREG_PRV);
+    
+    auto isInFftRegion = [](uint64_t addr) -> bool {
+        return (addr >= FFT_PROG_TEXT_START && addr < FFT_PROG_TEXT_END);
+    };
+    
+    int curr_cfa_val = (int)cfa;
+    ThreadID tid = inst->id.threadId;
+    std::string mnemonic = inst->staticInst->getName();
+
+    if (curr_cfa_val == 1 && prv == 0 &&
+        isInFftRegion(src) && isInFftRegion(tgt)) {
+            if(mnemonic!="jalr")
+            {
+
+        // Loop backedge (tgt < src): dedup once per unique PC
+        if (mnemonic=="bne") {
+         std::cout << "[DEBUG] Entered c_bnez dedup block "
+              << "tid=" << tid
+              << " src=0x" << std::hex << src
+              << " tgt=0x" << tgt
+              << std::dec << std::endl;
         
-        // One-time console print when CFA falls from 1 -> 0.
+            if (seen_loop_pcs[tid] != src) {
+                seen_loop_pcs[tid] = src;
+                cumulativeBranchHash.update(src, tgt);
+                if (branchLog) {
+                    branchLog << "[MinorCPU] LOOP(NEW): Src=0x" << std::hex << src
+                              << ", Tgt=0x" << tgt << "MN=" << mnemonic << std::dec << '\n';
+                }
+            } else if (branchLog) {
+                branchLog << "[MinorCPU] LOOP(DUP): Src=0x" << std::hex << src << "MN=" << mnemonic  << std::dec << '\n';
+            }
+        } else {
+            // Forward branches/JAL: always hash (path-sensitive)
+            cumulativeBranchHash.update(src, tgt);
+            if (branchLog) {
+                branchLog << "[MinorCPU] PATH: Src=0x" << std::hex << src
+                          << ", Tgt=0x" << tgt
+                          << ", HashSoFar: " << cumulativeBranchHash.finalize()
+                          << "MN=" << mnemonic 
+                          << std::dec << '\n';
+            }
+        }
+    }
+    }
+    
+    // CFA drop: finalize + reset
     if (prev_cfa_val == 1 && curr_cfa_val == 0) {
         if (branchLog) branchLog.flush();
-        std::cout << "[MinorCPU/Execute] Final cumulative branch hash: "
-                  << cumulativeBranchHash.finalize() << std::endl;
+        std::cout << "[MinorCPU/Execute] Final hash: " << cumulativeBranchHash.finalize() << std::endl;
         std::cout.flush();
-        cumulativeBranchHash.reset();
+        // cumulativeBranchHash.reset();
+        seen_loop_pcs.clear();  // Reset dedup for next CFA session
         prev_cfa_val = 0;
     } else {
         prev_cfa_val = curr_cfa_val;
     }
-}//-- END: cumulative branch hash hook ---
-
+}
+// --- END: cumulative branch hash hook ---
 
     updateBranchData(inst->id.threadId, reason, inst, *target, branch);
 }
