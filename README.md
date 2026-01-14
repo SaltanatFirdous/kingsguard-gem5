@@ -1,12 +1,21 @@
 # Kingsguard
 
-This repository contains Kingsguard project for RISC-V on gem5.
+This repository contains the Kingsguard project for RISC-V, implemented and evaluated using the gem5 simulator.
 
-## Current contents
-- `tools/Partition/`: A sample partitioned enclave and host program.
-  Compile the host and enclave program using the given Makefile by running   ```bash
-     make
-     ``` inside the Partition folder.
+---
+
+## Repository Contents
+
+### `tools/Partition/`
+A sample program partitioned into **enclave** and **host** components.
+
+#### Build
+Compile the host and enclave programs using the provided Makefile:
+
+```bash
+cd tools/Partition
+make
+```
      
 - `tools/declass/`: This folder contains scripts to perform static analysis on RISC-V Binaries to enumerate all valid control flow paths within a program and compute cryptographic measurements (hashes) for those paths.
 ## Installation
