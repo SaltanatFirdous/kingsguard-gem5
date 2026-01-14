@@ -17,17 +17,17 @@ cd tools/Partition
 make
 ```
      
-### `tools/declass/`: This folder contains scripts to perform static analysis on RISC-V Binaries to enumerate all valid control flow paths within a program and compute cryptographic measurements (hashes) for those paths.
+### 2. `tools/declass/`: This folder contains scripts to perform static analysis on RISC-V Binaries to enumerate all valid control flow paths within a program and compute cryptographic measurements (hashes) for those paths.
 ### Prerequisites
-	#### System Packages
+# System Packages
 		- python3 
 		- riscv gnu toolchain
-	#### Python dependencies
+# Python dependencies
 		- pyelftools
 		- capstone
-		```bash
-			pip install capstone pyelftools
-		```
+```bash
+    pip install capstone pyelftools
+```
 ## Usage
 The workflow involves three steps: compiling the binary, identifying control flow paths, and computing their hashes.
 ### 1. Compiling the binary
@@ -68,7 +68,7 @@ or
 ```
 
 
-- `tools/elf-ift/`: ELF preprocessing tools using ELFIO that prepare binaries to run under Kingsguard.
+### 3. `tools/elf-ift/`: ELF preprocessing tools using ELFIO that prepare binaries to run under Kingsguard.
   
   To attach metadata to the compiled binary:
 
@@ -81,7 +81,7 @@ or
 
      This will generate a modified ELF `<elfname.tag>` with required metadata.
 
-- `linux`: Linux kernel adapted for KingsGuard.
+### 4. `linux`: Linux kernel adapted for KingsGuard.
 
   Run (in linux directory):
 
@@ -95,7 +95,7 @@ or
 ```
 (generates vmlinux)
 
-- `riscv-pk`: Modified version of the RISC-V Proxy Kernel.
+### 5. `riscv-pk`: Modified version of the RISC-V Proxy Kernel.
 
   Run (in riscv-pk directory):
   ```bash
@@ -109,7 +109,7 @@ or
   make -j<n>
   ```
 
-- `gem5`: Modified gem5 simulator used to model the Kingsguard architecture.
+### 6. `gem5`: Modified gem5 simulator used to model the Kingsguard architecture.
 
   Run (in gem5 directory):
   ```bash
