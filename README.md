@@ -83,17 +83,13 @@ or
 
 ### 4. `linux`: Linux kernel adapted for KingsGuard.
 
-  Run (in linux directory):
+  Run (in linux directory) to generate vmlinux:
 
   ```bash
   make ARCH=riscv CROSS_COMPILE=riscv64-unknown-linux-gnu- defconfig
 
-
-
-```bash
   make ARCH=riscv CROSS_COMPILE=riscv64-unknown-linux-gnu-  all -j<n>
 ```
-(generates vmlinux)
 
 ### 5. `riscv-pk`: Modified version of the RISC-V Proxy Kernel.
 
@@ -108,27 +104,30 @@ or
   ```bash
   make -j<n>
   ```
-
+It generates a bbl image that should be provided as an input to the kernel field in the gem5 configuration script.
 ### 6. `gem5`: Modified gem5 simulator used to model the Kingsguard architecture.
 
   Run (in gem5 directory):
   ```bash
   scons build/RISCV/gem5.opt -j<n>
   ```
-  To run a simulation of KingsGuard:
+  
+Inside the configuration script (gem5/configs/example/gem5_library/riscv-fs.py), set the path to kernel and disk image based on your system. The kernel should point to the bbl image generated in riscv-pk and disk image can be set up by following this repo: https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md. The host and enclave binaries should be added to the disk image before booting. Once Linux boots, run the host binary.
 
-  Inside the configuration script (gem5/configs/example/gem5_library/riscv-fs.py), set the path to kernel and disk image based on your system.
+To run a simulation of KingsGuard:
   ```bash
   ./build/RISCV/gem5.opt configs/example/gem5_library/riscv-fs.py
   ```
+In another terminal:
+```bash
+cd util/term
+./m5term localhost 3456
+```
+This terminal will display the kernel boot logs and provide a login console, where the host bianry can be run.
   To run KingsGuard with SassCache implementation:
 
   ```bash
   ./build/RISCV/gem5.opt configs/example/gem5_library/riscv-fs-sass.py
   ```
-  
 
-Follow this repo to set up the disk image: https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md
-The host and enclave binaries should be added to the disk image before booting. Once Linux boots, run the host binary.
-Make sure the path to disk image and kernel is updated to the path on your system in the riscv-fs.py/riscv-fs-sass.py configuration files.
 
