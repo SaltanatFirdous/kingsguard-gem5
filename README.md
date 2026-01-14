@@ -6,7 +6,7 @@ This repository contains the Kingsguard project for RISC-V, implemented and eval
 
 ## Repository Contents
 
-- `tools/Partition/`
+### 1. `tools/Partition/`
 A sample program partitioned into **enclave** and **host** components.
 
 #### Build
