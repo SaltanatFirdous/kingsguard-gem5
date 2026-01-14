@@ -74,7 +74,7 @@ or
   To attach metadata to the compiled binary:
 
   1. Build the tag tool by running make inside elf-ft directory.
-  2. Run the compiled tag-elf binary by passing the desired bianry to be tested with KingsGuard:
+  2. Run the compiled tag-elf binary by passing the desired binary to be tested with KingsGuard:
 
      ```bash
      ./tag-elf <elfname>
