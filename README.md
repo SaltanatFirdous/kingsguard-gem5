@@ -1,6 +1,6 @@
 # Kingsguard
 
-This repository contains the Kingsguard project for RISC-V, implemented and evaluated using the gem5 simulator.
+This repository contains the KingsGuard project for RISC-V, implemented and evaluated using the gem5 simulator.
 
 ---
 
@@ -31,12 +31,12 @@ This folder contains scripts to perform static analysis on RISC-V Binaries to en
 ```
 ### Usage
 The workflow involves three steps: compiling the binary, identifying control flow paths, and computing their hashes.
-### 1. Compiling the binary
+### Compiling the binary
 
 Use the compiled enclave binary from the Partition folder.
 
 
-### 2. Path Enumeration
+### Path Enumeration
 
 Use the find\_cf\_path.sh wrapper or run cf\_path\_finder.py directly to analyze the binary. This will enumerate paths and export them to a CSV file.
 
@@ -54,7 +54,7 @@ or
 --csv      : Output file for the enumerated paths.
 --csv-loops: Output file for detected loop information.
 
-### 3. Compute Path Hashes
+### Compute Path Hashes
 
 Once the paths are generated (e.g., in paths.csv), use the hasher tool to generate cryptographic measurements for each path.
 
@@ -107,7 +107,7 @@ or
   ```
 It generates a bbl image that should be provided as an input to the kernel field in the gem5 configuration script.
 ### 6. `gem5`: Modified gem5 simulator used to model the Kingsguard architecture.
-
+### Build the gem5 image for KingsGuard
   Run (in gem5 directory):
   ```bash
   scons build/RISCV/gem5.opt -j<n>
@@ -115,7 +115,7 @@ It generates a bbl image that should be provided as an input to the kernel field
   
 Inside the configuration script (gem5/configs/example/gem5_library/riscv-fs.py), set the path to kernel and disk image based on your system. The kernel should point to the bbl image generated in riscv-pk and disk image can be set up by following this repo: https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md. The host and enclave binaries should be added to the disk image before booting. Once Linux boots, run the host binary.
 
-To run a simulation of KingsGuard:
+### Run a simulation of KingsGuard:
   ```bash
   ./build/RISCV/gem5.opt configs/example/gem5_library/riscv-fs.py
   ```
@@ -125,7 +125,7 @@ cd util/term
 ./m5term localhost 3456
 ```
 This terminal will display the kernel boot logs and provide a login console, where the host bianry can be run.
-  To run KingsGuard with SassCache implementation:
+### To run KingsGuard with SassCache implementation:
 
   ```bash
   ./build/RISCV/gem5.opt configs/example/gem5_library/riscv-fs-sass.py
