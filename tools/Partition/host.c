@@ -25,7 +25,7 @@ static int read_file(const char *path, uint8_t **out, size_t *out_sz) {
 
 int main(int argc, char **argv) {
   
-  int efd = open("./enclave", O_RDONLY);
+  int efd = open("./enclave.kg", O_RDONLY);
   static kg_shared_t shared = {0};
   kg_eid_t eid;
 

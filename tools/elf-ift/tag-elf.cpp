@@ -17,14 +17,13 @@ class ElfUtils {
 				exit(1);
 			}
 		}
-        //uint8_t ntag[1000];
-		//uint8_t ntag[10];
+      
 		void encrypt_file(std::string filename, uint8_t key[16]) {
 			create_elf();
             int n = 0;
 			int sz = 0;
 			uint8_t ntag[200000];
-			//uint8_t* ntag = (uint8_t *) calloc(1, 5000);
+			
 			
 			for(auto *section : writer.sections) {
 				
@@ -32,39 +31,8 @@ class ElfUtils {
 				cout<<section->get_name()<<" "<<section->get_type()<<" "<<hex<<section->get_size()<<endl;
 				cout<<section->get_address();
 				uint8_t *new_data = copy_data((const uint8_t *)section->get_data(), size);
-				/*if(section->get_type()==8 && (section->get_name()==string(".sbss") || 
-                    section->get_name()==string(".bss") || section->get_name()==string("__libc_freeres_ptrs") || section->get_name()==string(".rodata1")
-					 || section->get_name()==string(".fini"))){
-					section->set_type(1);
-				}*/
-				// if(section->get_type()==8 && (section->get_name()==string(".sbss") || 
-                //     section->get_name()==string(".bss"))){
-				// 	section->set_type(1);
-				// }
-				/*if(section->get_name()==string(".rodata"))
-				   print_data(new_data, size, key);*/
-#if 0
-				if(section->get_type()==8 && (section->get_name()==string(".tbss"))) {
-					section->set_type(1);
-        }
-#endif
-           // if(section->get_name()==string(".text") || section->get_name()==string(".rodata") || section->get_name()==string(".data") || section->get_name()==string(".sdata") || section->get_name()==string(".sbss") || section->get_name()==string(".bss") || section->get_name()==string(".eh_frame") || section->get_name()==string(".init_array") || section->get_name()==string(".fini_array")){
-				//printf("if block\n");
-				// sz += size - (size%64);
-				#if 0
-				if (section->get_name() == ".sdata") {
-					size_t size = section->get_size();
-					const uint8_t* data = (const uint8_t*)section->get_data();
-
-					cout << ".sdata section contents (" << size << " bytes):" << endl;
-					for (size_t i = 0; i < size; i++) {
-						printf("%02x ", data[i]);
-						if ((i + 1) % 16 == 0)  // New line every 16 bytes
-							printf("\n");
-					}
-					printf("\n");
-				}
-				#endif
+				
+	
 		#if 1	
 		    if(section->get_name()==string(".data")) {
 					parse_data(new_data, size, &new_data, ntag);
@@ -90,15 +58,22 @@ class ElfUtils {
     #endif
 	#if 1
     printf("hash section start\n");	
-	char * hash = 92413188156624a2ee3f3961a27883f6fae2b880c3d2c02a81bd56c4d0e47b3d;	//add computed hash of binary here
+	 printf("hash section start\n");	
+	uint64_t hash_words[4] = {
+		0x870BE4A6DD9B87B0ULL,
+		0x8679AFA2F002E130ULL,
+		0xB7F409BA7EA85E6BULL,
+		0xD65C7B3BE62D6E2BULL
+	};
     auto *hash_section = writer.sections.add(".data.hash");
     hash_section->set_addr_align(req_align);
     hash_section->set_address(0x80e00000);
     hash_section->set_type( SHT_PROGBITS);
-    hash_section->set_flags( SHF_ALLOC | SHF_WRITE );
-    hash_section->set_data(hash, 32); //32 bytes = 256
+    hash_section->set_flags( SHF_ALLOC );
+    hash_section->set_data(reinterpret_cast<const char*>(hash_words),
+                       sizeof(hash_words)); //32 bytes = 256
 	//tag_section->set_data((char*)ntag, 1000); //1 bit for 64 bits
-    hash_section->set_size((sz/64));
+    hash_section->set_size(sizeof(hash_words));
     printf("hash section done\n");
     #endif
 	#if 0
@@ -157,12 +132,7 @@ class ElfUtils {
 				segment->set_type(old_segment->get_type());
 				segment->set_flags(old_segment->get_flags());
 
-				// segment->set_align(std::max((ELFIO::Elf_Xword) 1, old_segment->get_align()));
-				// segment->set_align(old_segment->get_align());
-				// segment->set_virtual_address(old_segment->get_virtual_address());  
-				// segment->set_physical_address(old_segment->get_physical_address());    
-
-				// segment->set_offset          (old_segment->get_offset());       // p_offset
+				
 				segment->set_virtual_address (old_segment->get_virtual_address());
 				segment->set_physical_address(old_segment->get_physical_address());
 				segment->set_file_size       (old_segment->get_file_size());    // p_filesz
@@ -195,10 +165,7 @@ class ElfUtils {
         
         void parse_data(uint8_t *data, size_t size, uint8_t **ret_data, uint8_t *ntag) {
 				printf("reached parse data\n");
-				//printf("contents of section: %x\n", data);
-				//size_t offs = 0, curpos = *pos;
-				// if(size%8!=0)
-				//    size = size + (8-(size%8));  //otherwise last few bytes will be left out, size should be multiple of 8
+				
 				long tag_ind = 0;
 				int bit_val = 0;
 				ntag[0] = 0;
@@ -226,122 +193,7 @@ class ElfUtils {
 				
 }
 
-		// void crypt_data(uint8_t *data, size_t size, uint8_t **p, uint8_t key[16], uint8_t *ntag, int *n) {
-		// 	//printf("reached crypt data\n");
-		// 	size_t size_al;
-		// 	if(size%64 != 0){
-		// 		    size_al = size + (64 - (size%64));
-		// 			//printf("not 64\n");
-					
-		// 	}
-		// 	else
-		// 	   size_al = size;
-
-		// 	uint8_t *aligned = (uint8_t *) calloc(1, size_al);
-		// 	        memcpy(aligned, data , size);
-		// 	        for(size_t i = size; i < size_al/64; i++)  //i < size_al??
-		// 	             aligned[i] = 0;
-		// 	printf("%x\n", size_al);
-		// 	uint8_t *ciphertext = (uint8_t *) calloc(1, size_al);
-		// 	uint8_t *temp2 = (uint8_t *) calloc(1, size_al);
-		// 	//uint8_t *aligned = (uint8_t *) calloc(1, size);
-		// 	//memcpy(aligned, data , size - (64 - (size%64)));
-		// 	//for(size_t i = size - (64 - (size%64)); i < size/64; i++)
-		// 	       // aligned[i] = 0;
-			
-		// 	uint8_t *message = (uint8_t *) calloc(1, 64); //store 64 bits= 8bytes at a time  //64 bytes???
-		// 	uint8_t *block = (uint8_t *) calloc(1, 8); // encrypt 64 bits at a time
-        //     uint8_t *temp_block = (uint8_t *) calloc(1, 8);
-		// 	uint8_t *temp_msg = (uint8_t *) calloc(1, 64);
-		// 	srand(time(NULL));
-		// 	//printf("mem alloc done\n");
-		// 	for(size_t i = 0; i < (size_al)/64; i++) {
-				
-		// 		//generate a random nonce for every 56 byte block
-				
-        //         // Generate four 8-bit random numbers and combine them to get a 32-bit random number
-        //         uint32_t nonce = 0;
-        //         for (int i = 0; i < 4; i++) {
-        //           nonce = (nonce << 8) | (rand() & 0xFF);
-        //         }
-		// 	    //printf("nonce: %x\n", nonce);
-		// 		if(size%64!=0)
-		// 		   memcpy(message, aligned + (i*64) , 64);
-		// 	    else
-		// 		   memcpy(message, data + (i*64) , 64);
-                
-		// 		for(size_t j = 0; j < 64; j += 8) {
-		// 		   memcpy(block, message + j , 8);
-		// 		   //reverse(message, &message);
-				   
-		// 		   //uint8_t *temp_block = (uint8_t *) calloc(1, 8);
-				   
-		// 	       for(int i=0; i<8; i++){
-		// 		      temp_block[i] = block[7-i];
-		// 	       }
-		// 		   //0x4c4b45f1
-		// 		//    ascon_encrypt(temp_block,key,ciphertext + (i*64 + j), 0, 8);
-		// 	       /*printf("pt:"); 
-        //            for(int k = 0; k < 8; k++)
-		// 		      printf("%02x", temp_block[k]);
-        //             printf("\n");
-			                                                                                                                                                                  
-		// 	      printf("ct:");  
-		// 		  for(int k = 0; k < 8; k++)
-		// 		      printf("%02x", (ciphertext+(i*64 + j))[k]);  
-		// 		  printf("\n");*/
-		// 	       //printf("enc done\n"); 
-		//         for(int m=0; m<8; m++){
-		// 		   (temp2+(i*64 + j))[m] = (ciphertext+(i*64 + j))[7-m];
-		// 	    }
-
-		// 		if(j == 56){
-		// 			for(int k = 0; k < 8; k++){
-		// 		       ntag[*n + k] = (ciphertext+(i*64 + j))[k+8];
-		// 			   //ntag[0] = (ciphertext+(i*64 + j))[k+8];
-		// 			   //printf("%d\n", *n);
-		// 	    }
-		// 		//printf("tag set : %d\n", *n);
-		// 		*n += 8;
-		// 		/*printf("nonce and tag in prog:");
-		// 		for(int k = 0; k < 8; k++){
-		// 		   printf("%x", ntag[*n - 8 + k]);
-		// 	    }
-		// 		printf("\n");*/
-		// 		}  //last 8 byte block 
-		// 	}
-			
-		// 	//reverse(message, &message);
-		// 		//uint8_t *temp_msg = (uint8_t *) calloc(1, 64);
-		// 	 /*
-		// 	    for(int i=0; i<64; i++){
-		// 		   temp_msg[i] = message[63-i];
-		// 	    }
-				
-		// 		ascon_encrypt(temp_msg,key,ciphertext + (i*64), nonce, 64);
-				
-
-		// 		//set nonce and tag
-		// 	    for(int k = 0; k < 8; k++){
-		// 		   ntag[*n + k] = (ciphertext+(i*64))[k+64];
-		// 	    }
-				
-		// 		*n += 8;
-				
-		// 		/*printf("nonce and tag in prog:");
-		// 		for(int k = 0; k < 8; k++){
-		// 		   printf("%x", ntag[*n - 8 + k]);
-		// 	    }
-		// 		printf("\n"); */
-	        
-
 		
-		// }
-		
-		// *p = temp2;
-		
-				   
-		// }
 };
 
 
@@ -352,12 +204,9 @@ int main(int argc, char *argv[]) {
 	  return 0;
   }
 	std::string filename(argv[1]);
-    //uint8_t key[8] = {0x08, 0x4c, 0x2a, 0x6e, 0x19, 0x5d, 0x3b, 0x7f};
-	//uint8_t key[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x4c, 0x2a, 0x6e, 0x19, 0x5d, 0x3b, 0x7f};
+    
 	uint8_t key[16] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-	//uint8_t key[8] = {0x9f, 0x9f, 0x9f, 0x9f, 0x9f, 0x9f, 0x9f, 0x9f};
-	//ElfUtils(filename).encrypt_file(filename + ".enc", atoi(argv[2]));
-    ElfUtils(filename).encrypt_file(filename + ".enc", key);
+    ElfUtils(filename).encrypt_file(filename + ".kg", key);
 
 	return 0;
 }
