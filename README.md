@@ -124,7 +124,7 @@ In another terminal:
 cd util/term
 ./m5term localhost 3456
 ```
-This terminal will display the kernel boot logs and provide a login console, where the host bianry can be run.
+This terminal will display the kernel boot logs and provide a login console, where the host binary can be run.
 ### To run KingsGuard with SassCache implementation:
 
   ```bash
