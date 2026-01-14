@@ -3,11 +3,65 @@
 This repository contains Kingsguard project for RISC-V on gem5.
 
 ## Current contents
+- `tools/Partition/`: A sample partitioned enclave and host program.
+  Compile the host and enclave program using the given Makefile by running   ```bash
+     make
+     ``` inside the Partition folder.
+     
+- `tools/declass/`: This folder contains scripts to perform static analysis on RISC-V Binaries to enumerate all valid control flow paths within a program and compute cryptographic measurements (hashes) for those paths.
+## Installation
+### Prerequisites
+	#### System Packages
+		- python3 
+		- riscv gnu toolchain
+	#### Python dependencies
+		- pyelftools
+		- capstone
+		```bash
+			pip install capstone pyelftools
+		```
+## Usage
+The workflow involves three steps: compiling the binary, identifying control flow paths, and computing their hashes.
+### 1. Compiling the binary
+
+Use the compiled enclave binary from the Partition folder.
+
+
+### 2. Path Enumeration
+
+Use the find\_cf\_path.sh wrapper or run cf\_path\_finder.py directly to analyze the binary. This will enumerate paths and export them to a CSV file.
+
+```bash
+	./find_cf_path.sh <path_to_elf_binary>	
+```
+
+or
+
+```bash
+	python3 cf_path_finder.py <path_to_elf_binary> -s _start --csv paths.csv --csv-loops loops.csv
+```
+
+-s         : The symbol to start analysis from (default is entry point).
+--csv      : Output file for the enumerated paths.
+--csv-loops: Output file for detected loop information.
+
+### 3. Compute Path Hashes
+
+Once the paths are generated (e.g., in paths.csv), use the hasher tool to generate cryptographic measurements for each path.
+
+```bash
+	./compute_path_hash.sh
+```
+
+or
+
+```bash
+	python3 path_hasher.py paths.csv -o path_hashes.csv
+```
+
 
 - `tools/elf-ift/`: ELF preprocessing tools using ELFIO that prepare binaries to run under Kingsguard.
-
-  The Partition folder contains an example program partitioned into enclave and host parts. To compile the two parts, run make inside the Partition directory.
-
+  
   To attach metadata to the compiled binary:
 
   1. Build the tag tool by running make inside elf-ft directory.
