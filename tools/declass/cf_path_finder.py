@@ -267,6 +267,10 @@ class CFPathEnumerator:
             taken_target = self.extract_target_address(instr)
             fallthrough = self.get_fallthrough_addr(instr)
             is_backward = isinstance(taken_target, int) and taken_target < instr.address
+
+            print("taken_target: ", hex(taken_target))
+            print("fallthrough: ", hex(fallthrough))
+            print("is_backward: ", hex(is_backward))
             
             if is_backward:
                 # Log backward branch as potential loop
@@ -302,8 +306,8 @@ class CFPathEnumerator:
                         print(f"[DEBUG]   Taking backward branch once for loop coverage")
                     self.dfs_enumerate_paths(taken_target, current_path, list(return_stack), cf_depth + 1, 
                                             max_cf_depth, initial_func_start, visited_states.copy())
-                
-                current_path.pop()
+                if(not is_backward):
+                    current_path.pop()
             
             # Branch not-taken path (always explore)
             cf_step = {
@@ -312,7 +316,8 @@ class CFPathEnumerator:
                 'type': 'branch-not-taken',
                 'instruction': f"{instr.mnemonic} {instr.op_str}"
             }
-            current_path.append(cf_step)
+            if(not is_backward):
+                current_path.append(cf_step)
             self.dfs_enumerate_paths(fallthrough, current_path, list(return_stack), cf_depth + 1, 
                                     max_cf_depth, initial_func_start, visited_states.copy())
             current_path.pop()
