@@ -428,9 +428,9 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
     //asm volatile ("csrw 0x00B, %0" :: "r"(val));
     //  write_csr(0x308, base_pa);
     //  write_csr(0x309, size);
-     write_csr(0x30a, 1);  //enable TEE
-     write_csr(0x00b, 1);  //enable DIFT
-     write_csr(0x30b, 1);  //enable CFA
+    //  write_csr(0x30a, 1);  //enable TEE
+    //  write_csr(0x00b, 1);  //enable DIFT
+    //  write_csr(0x30b, 1);  //enable CFA
      encl_arr[idx].id = (uint64_t)(idx+1);
      encl_arr[idx].entry = entry_pc;
      encl_arr[idx].inuse = 1;
@@ -467,7 +467,8 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
     // uint64_t satp_enc = encl_arr[curr_task].satp;
    
     // printm("satp = 0x%x\n", satp_enc);
-    //  curr_task = get_current_task_idx(satp_enc);
+    uint64_t satp = read_csr(satp);
+     curr_task = get_current_task_idx(satp);
       // encl_arr[curr_task].return_pc = read_csr(mepc);
       encl_arr[curr_task].host_pc = read_csr(sepc);
       printm("curr task: %d\n", curr_task);
