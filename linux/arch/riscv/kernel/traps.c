@@ -157,6 +157,7 @@ asmlinkage __visible void do_trap_ecall_u(struct pt_regs *regs)
     switch (regs->a7) {
 
     case KG_ECREATE: {
+        pr_crit("does it even reach here?\n");
         long ret;
         u64 eid = 0;
 
@@ -170,6 +171,13 @@ asmlinkage __visible void do_trap_ecall_u(struct pt_regs *regs)
                 return;
             }
 
+            /* Reuse the exact loader you embedded in binfmt_elf.c:
+             *  - parse ELF headers/sections
+             *  - find & read ".data.tag" and do your SBI/M-mode call
+             *  - PT_LOAD mapping into enclave memory via SM
+             *  - finalize & get EID
+             */
+			 pr_crit("before calling load\n");
             ret = kgs_binfmt_load_from_filp(f.file, &eid);
             fdput(f);
 
@@ -180,12 +188,24 @@ asmlinkage __visible void do_trap_ecall_u(struct pt_regs *regs)
 
     case KG_EENTER: {
         /* a0 = eid, a1 = shared_user pointer (userspace VA) */
+    	// long ret = sbi_kgs_eenter((u64)regs->a0, (u64)regs->a1);
 		uint64_t host_epc   = regs->epc; 
+		pr_crit("epc: 0x%x\n", host_epc);
+
+		 /* --- read tp & sscratch BEFORE the SBI ecall --- */
+		unsigned long tp, ss;
+		asm volatile("mv %0, tp" : "=r"(tp));
+		ss = csr_read(CSR_SSCRATCH);          // or: csr_read(CSR_SSCRATCH)
+
+    	pr_crit("tp(before)=0x%lx sscratch(before)=0x%lx\n", tp, ss);
 		uint64_t eid = regs->a0;
 		uint64_t shared_buf = regs->a1;
 		struct pt_regs *uregs = task_pt_regs(current);
 		uint64_t x[32];
     	pt_regs_to_xarray(uregs, x);
+		pr_crit("uregs in kernel: %lx\n", uregs);
+		pr_crit("value at uregs: %x\n", uregs->sp);
+		pr_crit("value at x: %x\n", x[2]);
 		u64 x_pa = __pa(x);
 		 asm volatile("li a7, 12\n"
 											"move a0, %0\n"
@@ -195,15 +215,19 @@ asmlinkage __visible void do_trap_ecall_u(struct pt_regs *regs)
 											:
 											: "r" (eid), "r" (shared_buf), "r" (x_pa)
 											: "cc");
-		
+		// long ret;
+        // regs->a0 = ret;      /* 0 on OK; <0 error */
+		pr_crit("return from eenter\n");
 		regs->a0 = 0;
         regs->epc += 4;
-
+		// regs->epc = 0x4100ee;
+		pr_crit("epc: 0x%x\n", regs->epc);
+		pr_crit("updated epc\n");
         return;
     }
 
     case KG_EEXIT:
-        // enclave traps directly to SM, does not come here
+        /* Usually handled fully in SM; kernel just acknowledges. */
 		pr_crit("EEXIT\n");
 		asm volatile("li a7, 13\n"
 					"ecall\n");
@@ -212,7 +236,8 @@ asmlinkage __visible void do_trap_ecall_u(struct pt_regs *regs)
         return;
 
     case KG_OCALL:
-        // enclave traps directly to SM
+        /* Typically not invoked by host; enclave triggers this path and SM
+         * returns to host. If you need S-mode mediation, add it here. */
 		pr_crit("OCALL\n");
 		asm volatile("li a7, 14\n"
 					"ecall\n");

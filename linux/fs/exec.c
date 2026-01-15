@@ -1912,8 +1912,20 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (retval < 0)
 		goto out_free;
 
+    //pr_crit("filename %s\n",filename->name);
+	/*if(strcmp(filename->name,"./hello-t")==0) {
+               pr_crit("create enclave\n");
+               asm volatile("li a7, 10\n"
+                   "move a0, %0\n"
+                   "ecall\n"
+                   :
+                   : "r" (virt_to_pfn(bprm->mm->pgd))
+                   : "cc");
+        }*/
+
 	retval = bprm_execve(bprm, fd, filename, flags);
 
+	
 out_free:
 	free_bprm(bprm);
 

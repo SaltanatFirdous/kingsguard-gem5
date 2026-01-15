@@ -107,6 +107,106 @@ static int elf_core_dump(struct coredump_params *cprm);
 #define ELF_PAGEOFFSET(_v) ((_v) & (ELF_MIN_ALIGN-1))
 #define ELF_PAGEALIGN(_v) (((_v) + ELF_MIN_ALIGN - 1) & ~(ELF_MIN_ALIGN - 1))
 
+/* PTE bits */
+#define RV_PTE_V (1UL<<0)
+#define RV_PTE_R (1UL<<1)
+#define RV_PTE_W (1UL<<2)
+#define RV_PTE_X (1UL<<3)
+#define RV_PTE_U (1UL<<4)
+#define RV_PTE_A (1UL<<6)
+#define RV_PTE_D (1UL<<7)
+
+static inline u64 pa_to_pte(phys_addr_t pa){ return (pa >> 2) & ~0x3FFUL; }
+static inline phys_addr_t pte_to_pa(u64 pte){ return (pte & ~0x3FFUL) << 2; }
+static inline u64 *pt_kva(phys_addr_t pa){ return (u64 *)phys_to_virt(pa); }
+
+/* allocate one zeroed 4K page for page-table use; return phys addr or 0 */
+static u64 kgs_pt_alloc_page_phys(void)
+{
+	struct page *pg = alloc_page(GFP_KERNEL | __GFP_ZERO);
+	return pg ? (u64)page_to_phys(pg) : 0;
+}
+
+static phys_addr_t pt_alloc_4k(void){
+    phys_addr_t pa = kgs_pt_alloc_page_phys();
+    if (pa) memset(phys_to_virt(pa), 0, PAGE_SIZE);
+    return pa;
+}
+
+static phys_addr_t pt_ensure_tbl(phys_addr_t parent_pa, int lvl, unsigned long va){
+    int idx = (va >> (12 + 9*lvl)) & 0x1FF;
+    u64 *pt = pt_kva(parent_pa);
+    u64 pte = pt[idx];
+    if (!(pte & RV_PTE_V)) {
+        phys_addr_t child = pt_alloc_4k();
+        if (!child) return 0;
+        pt[idx] = pa_to_pte(child) | RV_PTE_V; /* next-level pointer */
+        return child;
+    }
+    return pte_to_pa(pte);
+}
+
+static int pt_map_leaf_4k(phys_addr_t root_pa, unsigned long va, phys_addr_t pa, u64 perms){
+    phys_addr_t l2 = pt_ensure_tbl(root_pa, 2, va); if (!l2) return -ENOMEM;
+    phys_addr_t l1 = pt_ensure_tbl(l2,    1, va); if (!l1) return -ENOMEM;
+    int idx = (va >> 12) & 0x1FF;
+    u64 *pte_tab = pt_kva(l1);
+    if (pte_tab[idx] & RV_PTE_V) return -EEXIST;
+    pte_tab[idx] = pa_to_pte(pa) | perms;
+    return 0;
+}
+
+static int pt_map_zero_range(phys_addr_t root_pa, unsigned long va, unsigned long len, u64 perms){
+    unsigned long off = 0;
+    while (off < len) {
+        phys_addr_t page = pt_alloc_4k();
+        if (!page) return -ENOMEM;
+        memset(phys_to_virt(page), 0, PAGE_SIZE);
+        int rc = pt_map_leaf_4k(root_pa, va + off, page, perms);
+        if (rc) return rc;
+        off += PAGE_SIZE;
+    }
+    return 0;
+}
+
+static int pt_map_load_segment(struct file *filp, phys_addr_t root_pa, const struct elf_phdr *p){
+    unsigned long va0 = ALIGN_DOWN(p->p_vaddr, PAGE_SIZE);
+    unsigned long va1 = ALIGN(      p->p_vaddr + p->p_memsz, PAGE_SIZE);
+    loff_t foff0      = ALIGN_DOWN(p->p_offset, PAGE_SIZE);
+    size_t file_bytes = p->p_filesz + (p->p_offset - foff0); /* include head pad */
+
+    u64 perms = RV_PTE_V | RV_PTE_U | RV_PTE_A | RV_PTE_D |
+                ((p->p_flags & PF_R) ? RV_PTE_R : 0) |
+                ((p->p_flags & PF_W) ? RV_PTE_W : 0) |
+                ((p->p_flags & PF_X) ? RV_PTE_X : 0);
+
+    unsigned long va = va0;
+    while (va < va1) {
+        phys_addr_t page = pt_alloc_4k();
+        void *kv = phys_to_virt(page);
+        size_t to_copy = 0;
+
+        if (!page) return -ENOMEM;
+        memset(kv, 0, PAGE_SIZE);
+
+        if (file_bytes) {
+            size_t head = (va == va0) ? (p->p_vaddr - va0) : 0;
+            size_t maxb = PAGE_SIZE - head;
+            to_copy = min_t(size_t, maxb, file_bytes);
+            if (to_copy) {
+                loff_t pos = foff0 + (va - va0) + head;
+                ssize_t n = kernel_read(filp, kv + head, to_copy, &pos);
+                if (n < 0 || (size_t)n != to_copy) return -EIO;
+                file_bytes -= to_copy;
+            }
+        }
+
+        int rc = pt_map_leaf_4k(root_pa, va, page, perms);
+        if (rc) return rc;
+        va += PAGE_SIZE;
+    }
+    return 0;
+}
 
 static struct linux_binfmt elf_format = {
 	.module		= THIS_MODULE,
@@ -124,8 +224,74 @@ static inline unsigned long prot_from_pf(u32 pf)
     return prot;
 }
 
+struct kg_map_args {
+	struct mm_struct      *mm;
+	struct file           *filp;
+	const struct elf_phdr *ph;
+	int                    phnum;
+	unsigned long          guard_bot;
+	unsigned long          ustack_bot;
+	unsigned long          ustack_len;
+	int                    ret;
+	struct completion      done;
+};
+
+/* Map ELF PT_LOAD segments and the stack into 'mm' */
+static int kg_encl_map_thread(void *arg)
+{
+    struct kg_map_args *a = arg;
+    int i;                                  /* declare loop index up front */
+    unsigned long addr;                     /* reuse these locals */
+    unsigned long prot, flags, map_addr, map_len, pgoff;
+
+    kthread_use_mm(a->mm);
+    // mmap_write_lock(a->mm);
+
+    /* 1) PT_LOAD segments */
+	pr_crit("kg_map: entering vm_mmap PT_LOAD loop\n");
+    for (i = 0; i < a->phnum; i++) {
+        const struct elf_phdr *p = &a->ph[i];
+
+        if (p->p_type != PT_LOAD)
+            continue;
+
+        prot     = prot_from_pf(p->p_flags);
+        flags    = MAP_PRIVATE | MAP_FIXED;
+        map_addr = ALIGN_DOWN(p->p_vaddr, PAGE_SIZE);
+        map_len  = ALIGN(p->p_memsz + (p->p_vaddr - map_addr), PAGE_SIZE);
+        pgoff    = ALIGN_DOWN(p->p_offset, PAGE_SIZE) >> PAGE_SHIFT;
+		pr_crit("%d before vmmap\n", i);
+        addr = vm_mmap(a->filp, map_addr, map_len, prot, flags, pgoff);
+		pr_crit("%d after vmmap\n", i);
+        if (IS_ERR_VALUE(addr)) {
+            a->ret = (int)addr;
+            goto out_unlock;
+        }
+    }
+	pr_crit("kg_map: PT_LOAD loop done, mapping stack/guard\n");
+    /* 2) Guard + stack */
+    addr = vm_mmap(NULL, a->guard_bot, PAGE_SIZE, PROT_NONE,
+                   MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS, 0);
+    if (IS_ERR_VALUE(addr)) { a->ret = (int)addr; goto out_unlock; }
+
+    addr = vm_mmap(NULL, a->ustack_bot, a->ustack_len,
+                   PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS, 0);
+    if (IS_ERR_VALUE(addr)) { a->ret = (int)addr; goto out_unlock; }
+
+    a->ret = 0;
+
+out_unlock:
+    // mmap_write_unlock(a->mm);
+	pr_crit("should call complete\n");
+    kthread_unuse_mm(a->mm);
+    complete(&a->done);
+    return 0;
+}
 
 #define BAD_ADDR(x) (unlikely((unsigned long)(x) >= TASK_SIZE))
+
+
 
 static int set_brk(unsigned long start, unsigned long end, int prot)
 {
@@ -707,6 +873,7 @@ struct kgs_seg {
 
 int kgs_binfmt_load_from_filp(struct file *filp, u64 *out_eid)
 {
+	pr_crit("knock knock\n");
     struct elfhdr eh;
     struct elf_phdr *ph = NULL;
     struct elf_shdr *sh = NULL;
@@ -757,8 +924,24 @@ int kgs_binfmt_load_from_filp(struct file *filp, u64 *out_eid)
 		if ((size_t)n != bytes) { ret = -EIO; goto out; }
 	}
 
+	pr_crit("step 2 done\n");
    	/* Compute enclave VA range and find writable data segment */
 	{
+		// u64 lo = ~0ULL, hi = 0;
+		// for (i = 0; i < eh.e_phnum; i++) {
+		// 	if (ph[i].p_type != PT_LOAD) continue;
+		// 	lo = min(lo, (u64)ph[i].p_vaddr);
+		// 	hi = max(hi, (u64)(ph[i].p_vaddr + ph[i].p_memsz));
+		// 	if ((ph[i].p_flags & PF_W) && !(ph[i].p_flags & PF_X)) {
+		// 		data_vma_start = ph[i].p_vaddr;
+		// 		data_memsz     = ph[i].p_memsz;
+		// 	}
+		// }
+		// if (lo == ~0ULL) { ret = -ENOEXEC; goto out; }
+
+		// enc_base = ALIGN_DOWN(lo, PAGE_SIZE);
+		// enc_size = ALIGN(hi - enc_base, PAGE_SIZE);
+
 		u64 lo = ~0ULL, hi = 0;
 		for (i = 0; i < eh.e_phnum; i++) {
 			const struct elf_phdr *p = &ph[i];
@@ -784,7 +967,7 @@ int kgs_binfmt_load_from_filp(struct file *filp, u64 *out_eid)
 		ustack_bot = ustack_top - (STACK_PAGES * PAGE_SIZE);
 		guard_bot  = ustack_bot - PAGE_SIZE;
 	}
-	
+	pr_crit("va range computed\n");
 	/* 4) Build segment table (for SM demand pager) */
 	for (i = 0; i < eh.e_phnum; i++)
 		if (ph[i].p_type == PT_LOAD) nsegs++;
@@ -807,10 +990,71 @@ int kgs_binfmt_load_from_filp(struct file *filp, u64 *out_eid)
 		}
 	}
 
+	/* --- 3) Create enclave mm + pgd --- */
+	// emm = mm_alloc();
+	// if (!emm) { ret = -ENOMEM; goto out; }
+
+	// emm->pgd = pgd_alloc(emm);
+	// if (!emm->pgd) { ret = -ENOMEM; goto out_drop_mm; }
+
+	// //  emm = dup_mm(current);
+    // // if (IS_ERR(emm) || !emm) {
+    // //     ret = IS_ERR(emm) ? PTR_ERR(emm) : -ENOMEM;
+    // //     goto out;
+    // // }
+    // // down_write(&emm->mmap_lock);
+    // // exit_mmap(emm);                /* remove all VMAs from the clone */
+    // // up_write(&emm->mmap_lock);
+
+	// 	/* Build private SV39 PT for enclave */
+	// phys_addr_t root_pa = pt_alloc_4k();
+	// if (!root_pa) { ret = -ENOMEM; goto out; }
+
+	// /* Map PT_LOADs */
+	// for (i = 0; i < eh.e_phnum; i++) {
+	// 	const struct elf_phdr *p = &ph[i];
+	// 	if (p->p_type != PT_LOAD) continue;
+	// 	ret = pt_map_load_segment(filp, root_pa, p);
+	// 	if (ret) goto out;
+	// }
+
+	// /* Map stack (RWU), leave guard unmapped */
+	// ret = pt_map_zero_range(root_pa, ustack_bot, STACK_PAGES*PAGE_SIZE,
+	// 						RV_PTE_V|RV_PTE_U|RV_PTE_R|RV_PTE_W|RV_PTE_A|RV_PTE_D);
+	// if (ret) goto out;
+
+	// /* Compose SATP (SV39=8) */
+	// {
+	// 	u16 asid = 0; /* TODO: unique per enclave */
+	// 	enclave_satp = (8ULL<<60) | ((u64)asid<<44) | ((root_pa>>12) & ((1ULL<<44)-1));
+	// }
+
+		// struct mm_struct *mm = current->mm;   // host process’s mm
+		// mmap_write_lock(mm);
+		pr_crit("before vmmap\n");
 		unsigned long reserve = vm_mmap(NULL, enc_base, enc_size,
                                 PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, 0);
+		pr_crit("after vmmap\n");
 		if (IS_ERR_VALUE(reserve)) { ret = (long)reserve; goto out; }
 
+
+	// 	for (i = 0; i < eh.e_phnum; i++) {
+	// 	const struct elf_phdr *p = &ph[i];
+	// 	unsigned long addr, prot, flags, map_addr, map_len, pgoff;
+	// 	if (p->p_type != PT_LOAD) continue;
+
+	// 	prot     = prot_from_pf(p->p_flags);              // R/W/X
+	// 	flags    = MAP_FIXED | MAP_PRIVATE;
+	// 	map_addr = ALIGN_DOWN(p->p_vaddr, PAGE_SIZE);
+	// 	map_len  = ALIGN(p->p_memsz + (p->p_vaddr - map_addr), PAGE_SIZE);
+	// 	pgoff    = ALIGN_DOWN(p->p_offset, PAGE_SIZE) >> PAGE_SHIFT;
+
+	// 	addr = vm_mmap(filp, map_addr, map_len, prot, flags, pgoff);
+	// 	if (IS_ERR_VALUE(addr)) { ret = (long)addr;  vm_munmap(enc_base, enc_size);
+    //     goto out; }
+	// }
+    pr_crit("before phnum loop\n");
+// mmap_write_lock(current->mm);   // take the mm write lock around the batch
 
 for (i = 0; i < eh.e_phnum; i++) {
     const struct elf_phdr *p = &ph[i];
@@ -868,6 +1112,21 @@ if (mlen > flen) {
     }
 }
 }
+	pr_crit("after phnum loop\n");
+
+	// struct vm_area_struct* v = find_vma(current->mm, 0x4100c0);
+	// pr_crit("VMA @4100c0: flags=%lx %s\n",
+	// 		v->vm_flags, (v->vm_flags & VM_EXEC) ? "EXEC" : "noX");
+
+	// pte_t *ptep; spinlock_t *ptl;
+	// ptep = get_locked_pte(current->mm, 0x410000 & PAGE_MASK, &ptl);
+	// if (ptep) {
+	// 	pr_crit("PTE @4100c0: %lx %s\n",
+	// 			pte_val(*ptep), (pte_val(*ptep) & _PAGE_EXEC) ? "X" : "noX");
+	// 	pte_unmap_unlock(ptep, ptl);
+	// }
+
+
 	unsigned long addr;
 	addr = vm_mmap(NULL, guard_bot, PAGE_SIZE, PROT_NONE,
 				MAP_FIXED|MAP_PRIVATE|MAP_ANONYMOUS, 0);
@@ -881,11 +1140,13 @@ if (mlen > flen) {
         goto out; }
 
 	// mmap_write_unlock(mm);
-
+	
+	pr_crit("before section headers loop\n");
     /* 3) Section headers → find ".data.tag" */
     if (eh.e_shentsize == sizeof(struct elf_shdr) && eh.e_shnum) {
         sh = kvmalloc(array_size(eh.e_shnum, sizeof(*sh)), GFP_KERNEL);
         if (!sh) { ret = -ENOMEM; goto out; }
+		pr_crit("before 1 kernel read\n");
       {
         loff_t pos = eh.e_shoff;                        /* <<< use a variable */
         size_t bytes = eh.e_shnum * sizeof(*sh);
@@ -900,6 +1161,7 @@ if (mlen > flen) {
         /* read section-name string table */
         shstr = kmalloc(shstr_sh->sh_size, GFP_KERNEL);
         if (!shstr) { ret = -ENOMEM; goto out; }
+        pr_crit("before 2 kernel read\n");
         {
             loff_t pos = shstr_sh->sh_offset;           /* <<< */
             size_t bytes = shstr_sh->sh_size;
@@ -927,25 +1189,38 @@ if (mlen > flen) {
                     if ((size_t)n != bytes) { kfree(elf_tags); ret = -EIO; goto out; }
                 }
                     paddr = virt_to_phys(elf_tags);
-					
+					pr_crit("before sbi call\n");
+					pr_crit("entry pc in kernel:%x\n", entry_pc);
+                    // asm volatile("li a7, 10\n"
+					// 						"move a0, %0\n"
+					// 						"move a1, %1\n"
+					// 						"move a2, %2\n"
+					// 						"move a3, %3\n"
+					// 						"move a4, %4\n"
+					// 						"move a5, %5\n"
+					// 						"move a6, %6\n"
+					// 						"ecall\n"
+					// 						:
+					// 						: "r" (virt_to_phys(elf_tags)), "r" (s->sh_size), "r" (data_vma_start), "r" (data_memsz), "r" (entry_pc), "r" (enclave_satp), "r" (ustack_top)
+					// 						: "cc");
+
 					/* Bind args to a0..a6 and the function to a7; capture a0/a1 outputs */
 					register u64 ra0 __asm__("a0") = (u64)virt_to_phys(elf_tags);   // tags phys
 					register u64 ra1 __asm__("a1") = (u64)s->sh_size;               // tags size
 					register u64 ra2 __asm__("a2") = (u64)data_vma_start;           // data vaddr
 					register u64 ra3 __asm__("a3") = (u64)data_memsz;               // data size
-					register u64 ra4 __asm__("a4") = (u64)entry_pc;                 // entry PC
+					register u64 ra4 __asm__("a4") = (u64)entry_pc;                 // <-- entry PC
 					// register u64 ra5 __asm__("a5") = (u64)enclave_satp;             // satp
 					register u64 ra5 __asm__("a5") = (u64)ustack_top;               // user sp
-					register u64 ra7 __asm__("a7") = 10;                            // mcall id: CREATE
+					register u64 ra7 __asm__("a7") = 10;                            // your FID: CREATE
 
 					__asm__ volatile("ecall"
-									: "+r"(ra0), "+r"(ra1)      
+									: "+r"(ra0), "+r"(ra1)       /* a0=err, a1=EID on return */
 									: "r"(ra2), "r"(ra3), "r"(ra4),
 									"r"(ra5), "r"(ra7)
 									: "memory");
 
-				    //set eid
-					*out_eid = ra0;
+				    pr_crit("after sbi call\n");
                     kfree(elf_tags);
                     if (ret) goto out;
 				}
@@ -954,19 +1229,21 @@ if (mlen > flen) {
                     phys_addr_t paddr;
                     if (!hash_buf) { ret = -ENOMEM; goto out; }
                     {
-                    loff_t pos = s->sh_offset;          
+                    loff_t pos = s->sh_offset;          /* <<< */
                     size_t bytes = s->sh_size;
                     ssize_t n = kernel_read(filp, hash_buf, bytes, &pos);
                     if (n < 0) { kfree(hash_buf); ret = (int)n; goto out; }
                     if ((size_t)n != bytes) { kfree(hash_buf); ret = -EIO; goto out; }
                 }
                     paddr = virt_to_phys(hash_buf);
+					pr_crit("before sbi call for hash\n");
 					asm volatile("li a7, 15\n"
 											"move a0, %0\n"
 											"ecall\n"
 											:
 											: "r" (virt_to_phys(hash_buf))
 											: "cc");
+					pr_crit("after sbi call for hash\n");
                     kfree(hash_buf);
                     if (ret) goto out;
 				}
@@ -976,6 +1253,7 @@ if (mlen > flen) {
                
             }
         }
+     pr_crit("step 3 done\n");
 	
     /* 6) Finalize (seal perms, finish measurement) */
     // ret = sbi_kgs_finalize(enc_base, &eid, &entry_pc);
@@ -1474,7 +1752,193 @@ out_free_interp:
     const char *fn = bprm->filename;
     const char *base = strrchr(fn, '/');
     base = base ? base + 1 : fn;
+        #if 0
+		if(strcmp(bprm->filename,"./hello-t")==0){
+			// pr_crit("Allocating a contiguous block\n");
+			unsigned long low = ~0UL, high = 0, total;
+			unsigned long uaddr;
+			int j, ret;
+			bool dyn = (elf_ex->e_type == ET_DYN);
+			dma_addr_t base_pa;
+			void *kva;
 
+			/* 1) Compute VA span covering all PT_LOAD segments */
+			for (j = 0, elf_ppnt = elf_phdata; j < elf_ex->e_phnum; j++, elf_ppnt++) {
+				if (elf_ppnt->p_type != PT_LOAD) continue;
+				low  = min(low,  ELF_PAGESTART(elf_ppnt->p_vaddr));
+				high = max(high, ELF_PAGEALIGN(elf_ppnt->p_vaddr + elf_ppnt->p_memsz));
+			}
+			if (low >= high)
+				goto mapped_fallback;  /* nothing to map */
+
+			total = high - low;
+			// pr_crit("step 1 done\n");
+			/* 2) Choose load_bias (PIE vs ET_EXEC), then normalize by first vaddr */
+			if (dyn) {
+				load_bias = ELF_ET_DYN_BASE;
+				if (current->flags & PF_RANDOMIZE)
+					load_bias += arch_mmap_rnd();
+				{
+					unsigned long alignment = maximum_alignment(elf_phdata, elf_ex->e_phnum);
+					if (alignment) load_bias &= ~(alignment - 1);
+				}
+				load_bias = ELF_PAGESTART(load_bias - low);   // normalize ONLY for PIE
+				uaddr     = load_bias + low;                  // first page lands at base
+			} else {
+				load_bias = 0;
+				uaddr     = low;  
+			}
+			
+			// pr_crit("step 2 done\n");
+			/* 3) Allocate one physically‑contiguous, pinned block via CMA */
+			kva = dma_alloc_coherent(tee_contig_dev, total, &base_pa, GFP_KERNEL);
+			// pr_crit("TEE binary mapped: PA=%pa size=%#lx\n", &base_pa, total);
+			if (!kva)
+				goto mapped_fallback;
+			memset(kva, 0, total);                  /* zero to avoid leaks; handles .bss */
+			// pr_crit("step 3 done\n");
+			/* 4) Copy file bytes into the kernel buffer at their offsets */
+			for (j = 0, elf_ppnt = elf_phdata; j < elf_ex->e_phnum; j++, elf_ppnt++) {
+				if (elf_ppnt->p_type != PT_LOAD || !elf_ppnt->p_filesz) continue;
+				{
+					loff_t off = elf_ppnt->p_offset;
+					ret = kernel_read(bprm->file,
+									(char *)kva + (elf_ppnt->p_vaddr - low),
+									elf_ppnt->p_filesz, &off);
+					if (ret < 0 || ret != elf_ppnt->p_filesz) {
+						dma_free_coherent(tee_contig_dev, total, kva, base_pa);
+						retval = ret < 0 ? ret : -EIO;
+						goto out_free_dentry;
+					}
+				}
+			}
+			// pr_crit("step 4 done\n");
+			/* 5) Map each PT_LOAD as its own PFN‑mapped VMA with final perms (no faults) */
+			for (j = 0, elf_ppnt = elf_phdata; j < elf_ex->e_phnum; j++, elf_ppnt++) {
+				unsigned long seg_vstart, seg_vend, seg_len;
+				unsigned long seg_off, prot = 0;
+				struct vm_area_struct *vma;
+				struct mm_struct *mm = current->mm;
+				unsigned long pfn;
+				unsigned long r;
+
+				if (elf_ppnt->p_type != PT_LOAD)
+					continue;
+
+				/* VA range for this segment (page aligned), at its final address */
+				seg_vstart = ELF_PAGESTART(uaddr + (elf_ppnt->p_vaddr - low));
+				seg_vend   = ELF_PAGEALIGN(uaddr + (elf_ppnt->p_vaddr - low) + elf_ppnt->p_memsz);
+				seg_len    = seg_vend - seg_vstart;
+
+				/* Final protections from ELF p_flags */
+				if (elf_ppnt->p_flags & PF_R) prot |= PROT_READ;
+				if (elf_ppnt->p_flags & PF_W) prot |= PROT_WRITE;
+				if (elf_ppnt->p_flags & PF_X) prot |= PROT_EXEC;
+
+				/* Reserve this segment’s VMA at the exact VA with its final prot */
+				r = vm_mmap(NULL, seg_vstart, seg_len, prot,
+							MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_NORESERVE,
+							0);
+				// pr_crit("before dma free coherent\n");
+				if (IS_ERR_VALUE(r)) {
+					dma_free_coherent(tee_contig_dev, total, kva, base_pa);
+					// pr_crit("after dma free coherent\n");
+					retval = r;
+					goto out_free_dentry;
+				}
+
+				/* PFN slice inside the contiguous CMA block for this segment */
+				seg_off = ELF_PAGESTART(elf_ppnt->p_vaddr - low);              /* offset within the block */
+				pfn = page_to_pfn(virt_to_page((char *)kva + seg_off));        /* robust with/without IOMMU */
+
+				/* Convert that VMA into a PFN‑mapped range and wire the pages */
+				mmap_write_lock(mm);
+				vma = find_vma(mm, seg_vstart);  /* should cover [seg_vstart, seg_vend) */
+				// pr_crit("before second dma free coherent\n");
+				if (!vma || vma->vm_start > seg_vstart || vma->vm_end < seg_vend) {
+					mmap_write_unlock(mm);
+					dma_free_coherent(tee_contig_dev, total, kva, base_pa);
+					// pr_crit("after second dma free coherent\n");
+					retval = -EINVAL;
+					goto out_free_dentry;
+				}
+				vma->vm_flags |= VM_PFNMAP | VM_DONTEXPAND | VM_DONTCOPY | VM_DONTDUMP | VM_LOCKED;
+				// pr_crit("before remap\n");
+				ret = remap_pfn_range(vma, seg_vstart, pfn, seg_len, vma->vm_page_prot);
+				// pr_crit("after remap\n");
+				mmap_write_unlock(mm);
+				if (ret) {
+					dma_free_coherent(tee_contig_dev, total, kva, base_pa);
+					// pr_crit("after last dma free coherent\n");
+					retval = ret;
+					goto out_free_dentry;
+				}
+			}
+			// pr_crit("step 5 done\n");
+					/* 6) Recompute bookkeeping the stock code expects (matches normal path) */
+		 load_addr_set = 0;
+		 start_code = ~0UL; end_code = 0;
+		 start_data = 0;   end_data = 0;
+		 elf_bss = 0; elf_brk = 0;
+		
+		 for (j = 0, elf_ppnt = elf_phdata; j < elf_ex->e_phnum; j++, elf_ppnt++) {
+		     unsigned long k;
+		     if (elf_ppnt->p_type != PT_LOAD)
+		         continue;
+		
+		     if (!load_addr_set) {
+		         /* This is what create_elf_tables() expects for AT_PHDR, etc. */
+		         load_addr_set = 1;
+		         load_addr = elf_ppnt->p_vaddr - elf_ppnt->p_offset;
+		         if (elf_ex->e_type == ET_DYN) {
+		             load_addr += load_bias;         /* PIE gets biased */
+		             reloc_func_desc = load_bias;    /* parity with normal path */
+	         }
+		     }
+		
+		     /* stock bookkeeping for code/data/bss/brk (pre-bias; bias added at 'mapped:') */
+		     k = elf_ppnt->p_vaddr;
+		     if ((elf_ppnt->p_flags & PF_X) && k < start_code) start_code = k;
+		     if (start_data < k) start_data = k;
+		
+		     k = elf_ppnt->p_vaddr + elf_ppnt->p_filesz;
+		     if (k > elf_bss) elf_bss = k;
+		     if ((elf_ppnt->p_flags & PF_X) && end_code < k) end_code = k;
+		     if (end_data < k) end_data = k;
+		
+		     k = elf_ppnt->p_vaddr + elf_ppnt->p_memsz;
+		     if (k > elf_brk) elf_brk = k;
+		 }
+		//  pr_crit("step 6 done\n");
+		//  pr_info("fastpath: dyn=%d low=%#lx uaddr=%#lx load_bias=%#lx load_addr=%#lx\n",
+        // dyn, low, uaddr, load_bias, load_addr);
+           
+            u64 arg_base_pa = (u64)base_pa;  /* VALUE, not &base_pa, not virt_to_pfn */
+			u64 arg_size    = (u64)total;
+
+			register u64 a0 asm("a0") = arg_base_pa;
+			register u64 a1 asm("a1") = arg_size;
+			register u64 a7 asm("a7") = 10;
+			asm volatile ("ecall"
+						: "+r"(a0), "+r"(a1)
+						: "r"(a7)
+						: "memory");
+            /*
+		    //jump to SM to isolate this memory region
+               pr_crit("create enclave\n");
+               asm volatile("li a7, 10\n"
+                   "move a0, %0\n"
+				   "move a1, %1\n"
+                   "ecall\n"
+                   :
+                   : "r" (base_pa), "r" (total)
+                   : "cc");
+            */
+
+			/* success: skip the stock PT_LOAD loop */
+			goto mapped;
+		}
+		#endif
 	}
 	
 
@@ -1654,12 +2118,27 @@ out_free_interp:
 
     	#if 1
 
+	if(strcmp(bprm->filename,"./base")==0){
+				register unsigned long a0 asm("a0");          // return value
+				register unsigned long a7 asm("a7") = 11;     // legacy SBI func ID
 
+				asm volatile ("ecall"
+							: "=r"(a0)                      // a0 clobbered with return
+							: "r"(a7)                       // a7 input
+							: "memory");  
+	}
 	if(strcmp(bprm->filename,"./hello-t")==0){
-		// when entire program runs within the enclave, it should be called hello-t
+	//pr_crit(" reading tags\n");
 	for(i = 0, elf_spnt = elf_shdata;
 	    i < elf_ex->e_shnum; i++, elf_spnt++) {
+	    //pr_crit("iterating through sections\n");
+	               //pr_crit("Entered for loop\n");
+			//if (strcmp(elf_spnt->sh_name, ".rodata") == 0){
+			//if (elf_spnt->sh_type == SHT_NOTE){  //note section type = 7: checked after printing all section types
 			if (strcmp(shstrtab + elf_spnt->sh_name, ".data.tag") == 0){
+			//pr_crit("Found note section\n");
+			//pr_crit("Section name: %s\n", elf_spnt->sh_name);
+			//res1 = read_csr(0xc00);
 			uint8_t *elf_tags;
 			elf_tags = kmalloc(elf_spnt->sh_size, GFP_KERNEL);
 			if (!elf_tags)
@@ -1677,9 +2156,29 @@ out_free_interp:
                                         :
                                         : "r" (virt_to_phys(elf_tags)), "r" (elf_spnt->sh_size), "r" (data_vma_start), "r" (data_memsz)
                                         : "cc");
+            // u64 arg_base_pa = (u64)base_pa;  /* VALUE, not &base_pa, not virt_to_pfn */
+			// u64 arg_size    = (u64)total;
+
+			// register u64 a0 asm("a0") = arg_base_pa;
+			// register u64 a1 asm("a1") = arg_size;
+			// register u64 a7 asm("a7") = 10;
+			// asm volatile ("ecall"
+			// 			: "+r"(a0), "+r"(a1)
+			// 			: "r"(a7)
+			// 			: "memory");
+            
+		    //jump to SM to isolate this memory region
+            //    pr_crit("create enclave\n");
+            //    asm volatile("li a7, 10\n"
+            //        "move a0, %0\n"
+			// 	   "move a1, %1\n"
+            //        "ecall\n"
+            //        :
+            //        : "r" (base_pa), "r" (total)
+            //        : "cc");
 			
 		 	}
-                     
+                       //pr_crit("%d\n", elf_spnt->sh_type);
 		}
 	}
     #endif
