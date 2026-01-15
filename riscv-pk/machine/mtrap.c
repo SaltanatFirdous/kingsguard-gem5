@@ -20,7 +20,8 @@
 #include <string.h>
 
 
-#define mem_base 0x80200000
+#define mem_base 0x80000000
+#define SLOT(n)  ((n) * REGBYTES)
 #define ENCLAVE_SUCCESS 0
 
 static encl encl_arr[MAX_ENCL];
@@ -37,6 +38,7 @@ int user_app = 0;
 
 int total_machine_cycles;
 int cycles1, cycles2;
+uint64_t host_sp;
 static void dump_regs(uintptr_t* regs) {
    for(int i=0;i<32;++i){
      printm("x%d : 0x%" PRIx64 "\n",i, *(regs+i));
@@ -49,6 +51,81 @@ static const char* regname[32] = {
   "x16/a6","x17/a7","x18/s2","x19/s3","x20/s4","x21/s5","x22/s6","x23/s7",
   "x24/s8","x25/s9","x26/s10","x27/s11","x28/t3","x29/t4","x30/t5","x31/t6"
 };
+
+enum {
+  SLOT_RA = 1,
+  SLOT_SP = 2,
+  SLOT_GP = 3,
+  SLOT_TP = 4,
+  SLOT_T0 = 5, SLOT_T1, SLOT_T2,          // 5..7
+  SLOT_S0 = 8, SLOT_S1,                    // 8..9
+  SLOT_A0 = 10, SLOT_A1, SLOT_A2, SLOT_A3, // 10..13
+  SLOT_A4 = 14, SLOT_A5, SLOT_A6, SLOT_A7, // 14..17
+  SLOT_S2 = 18, SLOT_S3, SLOT_S4, SLOT_S5, SLOT_S6, SLOT_S7, SLOT_S8, SLOT_S9, SLOT_S10, SLOT_S11, // 18..27
+  SLOT_T3 = 28, SLOT_T4, SLOT_T5, SLOT_T6  // 28..31
+  // Note: there may be other metadata words before/after, but these slots map your LOADs.
+};
+
+static inline uintptr_t tf_read_slot(uintptr_t base, int slot)
+{
+    return *(uintptr_t *)(base + (slot * REGBYTES));
+}
+
+static void dump_words(const void *addr, size_t bytes)
+{
+    const uintptr_t base = (uintptr_t)addr;
+    // Print the absolutely critical ones first
+    printm("Trap frame base=%p\n", (void*)base);
+    printm("  sp(slot%2d) = 0x%016lx  ra(slot%2d) = 0x%016lx\n",
+           SLOT_SP, (unsigned long)tf_read_slot(base, SLOT_SP),
+           SLOT_RA, (unsigned long)tf_read_slot(base, SLOT_RA));
+    printm("  a0(slot%2d) = 0x%016lx  a1(slot%2d) = 0x%016lx\n",
+           SLOT_A0, (unsigned long)tf_read_slot(base, SLOT_A0),
+           SLOT_A1, (unsigned long)tf_read_slot(base, SLOT_A1));
+    printm("  a2(slot%2d) = 0x%016lx  a3(slot%2d) = 0x%016lx\n",
+           SLOT_A2, (unsigned long)tf_read_slot(base, SLOT_A2),
+           SLOT_A3, (unsigned long)tf_read_slot(base, SLOT_A3));
+    printm("  a4(slot%2d) = 0x%016lx  a5(slot%2d) = 0x%016lx\n",
+           SLOT_A4, (unsigned long)tf_read_slot(base, SLOT_A4),
+           SLOT_A5, (unsigned long)tf_read_slot(base, SLOT_A5));
+    printm("  a6(slot%2d) = 0x%016lx  a7(slot%2d) = 0x%016lx\n",
+           SLOT_A6, (unsigned long)tf_read_slot(base, SLOT_A6),
+           SLOT_A7, (unsigned long)tf_read_slot(base, SLOT_A7));
+
+    // Callee-saved and temps (useful for sanity)
+    printm("  s0(slot%2d) = 0x%016lx  s1(slot%2d) = 0x%016lx\n",
+           SLOT_S0, (unsigned long)tf_read_slot(base, SLOT_S0),
+           SLOT_S1, (unsigned long)tf_read_slot(base, SLOT_S1));
+    printm("  s2(slot%2d) = 0x%016lx  s3(slot%2d) = 0x%016lx\n",
+           SLOT_S2, (unsigned long)tf_read_slot(base, SLOT_S2),
+           SLOT_S3, (unsigned long)tf_read_slot(base, SLOT_S3));
+    printm("  s4(slot%2d) = 0x%016lx  s5(slot%2d) = 0x%016lx\n",
+           SLOT_S4, (unsigned long)tf_read_slot(base, SLOT_S4),
+           SLOT_S5, (unsigned long)tf_read_slot(base, SLOT_S5));
+    printm("  s6(slot%2d) = 0x%016lx  s7(slot%2d) = 0x%016lx\n",
+           SLOT_S6, (unsigned long)tf_read_slot(base, SLOT_S6),
+           SLOT_S7, (unsigned long)tf_read_slot(base, SLOT_S7));
+    printm("  s8(slot%2d) = 0x%016lx  s9(slot%2d) = 0x%016lx\n",
+           SLOT_S8, (unsigned long)tf_read_slot(base, SLOT_S8),
+           SLOT_S9, (unsigned long)tf_read_slot(base, SLOT_S9));
+    printm("  s10(slot%2d)= 0x%016lx  s11(slot%2d)= 0x%016lx\n",
+           SLOT_S10, (unsigned long)tf_read_slot(base, SLOT_S10),
+           SLOT_S11, (unsigned long)tf_read_slot(base, SLOT_S11));
+    printm("  tp(slot%2d) = 0x%016lx  gp(slot%2d) = 0x%016lx\n",
+           SLOT_TP, (unsigned long)tf_read_slot(base, SLOT_TP),
+           SLOT_GP, (unsigned long)tf_read_slot(base, SLOT_GP));
+    printm("  t0(slot%2d) = 0x%016lx  t1(slot%2d) = 0x%016lx\n",
+           SLOT_T0, (unsigned long)tf_read_slot(base, SLOT_T0),
+           SLOT_T1, (unsigned long)tf_read_slot(base, SLOT_T1));
+    printm("  t2(slot%2d) = 0x%016lx  t3(slot%2d) = 0x%016lx\n",
+           SLOT_T2, (unsigned long)tf_read_slot(base, SLOT_T2),
+           SLOT_T3, (unsigned long)tf_read_slot(base, SLOT_T3));
+    printm("  t4(slot%2d) = 0x%016lx  t5(slot%2d) = 0x%016lx\n",
+           SLOT_T4, (unsigned long)tf_read_slot(base, SLOT_T4),
+           SLOT_T5, (unsigned long)tf_read_slot(base, SLOT_T5));
+    printm("  t6(slot%2d) = 0x%016lx\n",
+           SLOT_T6, (unsigned long)tf_read_slot(base, SLOT_T6));
+}
 
 void store_host_context(uintptr_t * host_regs){
   int i;
@@ -73,8 +150,17 @@ void swap_prev_state(struct thread_state* thread, uintptr_t* regs, int return_on
 {
   printm("swap prev state\n");
   int i;
+  // uint64_t  x_local[32];
   uintptr_t* prev = (uintptr_t*) &thread->prev_state;
+  // printm("regs: %lx\n", regs);
+  // uintptr_t saved = mprv_enter_S();
 
+// copy bytewise to avoid alignment problems
+// for (size_t i=0; i<sizeof(x_local); i++)
+//     ((volatile uint8_t*)x_local)[i] = ((volatile uint8_t*)regs)[i];
+
+// mprv_restore(saved);
+  // printm("value at regs: %x\n", *x_local);
   for(i=0; i<32; i++)
   {
     /* swap state */
@@ -92,7 +178,9 @@ void swap_prev_state(struct thread_state* thread, uintptr_t* regs, int return_on
 }
 
 /* Swaps all s-mode csrs defined in 1.10 standard */
-
+/* TODO: Right now we are only handling the ones that our test
+   platforms support. Realistically we should have these behind
+   defines for extensions (ex: N extension)*/
 void swap_prev_smode_csrs(struct thread_state*
 thread){
 
@@ -131,25 +219,38 @@ static inline uintptr_t context_switch_to_enclave(uintptr_t* k_regs, uint64_t ei
 
   printm("context switch to enclave\n");
   
+  //save important registers
+  // uintptr_t sscratch_reg = regs[4];
+  /* save host context */
   store_host_context(host_regs);
   swap_prev_state(&encl_arr[curr_task].threads[0], k_regs, 1);
+  // swap_prev_mepc(&encl_arr[curr_task].threads[0], regs, read_csr(mepc));
 
   uintptr_t interrupts = 0;
   write_csr(mideleg, interrupts);
 
-
+  // if(load_parameters){
+    // passing parameters for a first run
+    // $mepc: (VA) kernel entry
     if(encl_arr[curr_task].state == 0){  //if new enclave
           write_csr(mepc, (uintptr_t) encl_arr[curr_task].entry); //go to start address
-          encl_arr[curr_task].state = 1; //running
+          encl_arr[curr_task].state = 1; //ready
     }
     if(encl_arr[curr_task].state == 2){ //return after ocall
+          // write_csr(mepc, (uintptr_t) k_regs[1]); //go to address in ra
           write_csr(mepc,encl_arr[curr_task].return_pc + 4);
           encl_arr[curr_task].state = 1; //ready
     }
+    
+    // $sepc: (VA) user entry
+    // write_csr(sepc, (uintptr_t) encl_arr[curr_task].entry);
 
+  // }
     printm("mepc before return: %x\n", read_csr(mepc));
     printm("sepc before return: %x\n", read_csr(sepc));
-    uintptr_t mstatus = read_csr(mstatus);
+  // cpu_enter_enclave_context(eid);
+  // swap_prev_mpp(&enclaves[eid].threads[0], regs);
+     uintptr_t mstatus = read_csr(mstatus);
     uintptr_t mpie_from_mie = (mstatus & MSTATUS_MIE) ? MSTATUS_MPIE : 0;
     uintptr_t new_mstatus = (mstatus & ~(MSTATUS_MPP | MSTATUS_MPIE | MSTATUS_MIE)) | mpie_from_mie;
     write_csr(mstatus, new_mstatus);
@@ -157,8 +258,9 @@ static inline uintptr_t context_switch_to_enclave(uintptr_t* k_regs, uint64_t ei
     write_csr(0x00b, 1);  //enable DIFT
     write_csr(0x30b, 1);  //enable CFA
     
+    printm("return\n");
     k_regs[11] = (uintptr_t)shared_buf;
-    k_regs[10] = eid;
+    // asm volatile("mret");
   return ENCLAVE_SUCCESS;
 }
 
@@ -170,8 +272,36 @@ static inline void context_switch_to_host(uintptr_t* encl_regs){
 
   /* restore host context */
   swap_prev_state(&encl_arr[curr_task].threads[0], encl_regs, 1); //probably not needed
+  // swap_prev_mepc(&encl_arr[curr_task].threads[0], read_csr(mepc));
   restore_host_context(encl_regs);
-  // write_csr(mepc, encl_arr[curr_task].host_pc);
+  write_csr(mepc, encl_arr[curr_task].host_pc);
+
+  // GPRs (regs is the trapframe that will be restored by mret)
+  printm("=== GPRs after swap ===\n");
+  for (int i = 0; i < 32; i++) {
+    printm("  %-8s = 0x%016lx\n", regname[i], ((unsigned long*)encl_regs)[i]);
+  }
+
+  // Key CSRs expected by Linux
+  uintptr_t sstatus   = read_csr(sstatus);
+  uintptr_t stvec     = read_csr(stvec);
+  uintptr_t sscratch  = read_csr(sscratch);
+  uintptr_t sie       = read_csr(sie);
+  uintptr_t sepc      = read_csr(sepc);
+  uintptr_t satp      = read_csr(satp);
+  uintptr_t mstatus   = read_csr(mstatus);
+  uintptr_t mepc      = read_csr(mepc);
+
+  printm("=== CSRs after swap ===\n");
+  printm("  mstatus=0x%016lx mepc=0x%016lx\n", mstatus, mepc);
+  printm("  sstatus=0x%016lx stvec=0x%016lx sscratch=0x%016lx sie=0x%016lx\n",
+         sstatus, stvec, sscratch, sie);
+  printm("  sepc   =0x%016lx satp =0x%016lx\n", sepc, satp);
+
+  // Also print tp and sp from the soon-to-be-restored regs
+  uintptr_t sp = ((unsigned long*)encl_regs)[2];
+  uintptr_t tp = ((unsigned long*)encl_regs)[4];
+  printm("  (from regs) sp=0x%016lx tp=0x%016lx\n", sp, tp);
 
   uintptr_t pending = read_csr(mip);
 
@@ -188,6 +318,8 @@ static inline void context_switch_to_host(uintptr_t* encl_regs){
     set_csr(mip, MIP_SEIP);
   }
 
+
+  // swap_prev_mpp(&enclaves[eid].threads[0], encl_regs);
   return;
 }
 
@@ -217,6 +349,7 @@ int get_available_idx() {
                    (unsigned long)satp_enc, i, (unsigned long)satp);
   #endif
           if (encl_arr[i].satp == satp) {
+              // printm("its equal !!!!!!\n");
               return i;
           }
       }
@@ -235,12 +368,13 @@ void map_tags(uint64_t fa, uint64_t *phy_fa, uintptr_t idx){
     volatile uint8_t *dst = (volatile uint8_t *)(uintptr_t)tag_dst_pa;
 
     // copy exactly 64 bytes
-    for (size_t i = 0; i < 64; ++i)
-        dst[i] = src[i];
+    // for (size_t i = 0; i < 64; ++i)
+    //     dst[i] = src[i];
 }
         
 
 static uintptr_t mcall_load_tags(uint8_t* buf, size_t size){
+  // printm("I am in load_tag\n");
   uint64_t *elf_tags_in_shadow_mem = (uint64_t *)0x80d00000;
   uint64_t *src = (uint64_t *)buf;
 
@@ -249,21 +383,28 @@ static uintptr_t mcall_load_tags(uint8_t* buf, size_t size){
   for (size_t i = 0; i < num_tags; ++i) {
     elf_tags_in_shadow_mem[i] = src[i];
   }
+   printm("end of load tags\n");
   return 1;
   }
 
 
 static uintptr_t mcall_load_hash(uint64_t* buf){
+  // printm("I am in load_tag\n");
   uint64_t *hash_in_sm_mem = (uint64_t *)0x80e00000;
 
+  printm("hash in sm\n");
   for (size_t i = 0; i < 4; ++i) {  //64*4=256
     hash_in_sm_mem[i] = buf[i];
+    printm("%lx\n", buf[i]);
   }
 
   write_csr(0x30c, buf[0]);  // bits [63:0]
   write_csr(0x30d, buf[1]);  // bits [127:64]
-  write_csr(0x30d, buf[2]);  // bits [191:128]
+  write_csr(0x30e, buf[2]);  // bits [191:128]
   write_csr(0x30f, buf[3]);  // bits [255:192]
+  
+
+   printm("end of load hash\n");
   return 0;
   }
 
@@ -274,17 +415,32 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
   }
 
   static uintptr_t mcall_create_enclave(uint8_t* buf, size_t size, uint64_t data_vma_start, uint64_t data_memsz, uintptr_t entry_pc, uint64_t ustack_top){
+     printm("mcall_create_enclave\n");
     int idx = get_available_idx();
+    printm("entry pc = 0x%x\n", entry_pc);
     // if entry not available then let the user know and return
     if (-1 == idx) {
       return 1;
     }
-
+    //  write_csr(0x30c, 1);
+    // printm("Base pa: %x  size %x\n", base_pa, size);
+    //int val = 1;
+    //asm volatile ("csrw 0x00B, %0" :: "r"(val));
+    //  write_csr(0x308, base_pa);
+    //  write_csr(0x309, size);
+     write_csr(0x30a, 1);  //enable TEE
+     write_csr(0x00b, 1);  //enable DIFT
+     write_csr(0x30b, 1);  //enable CFA
      encl_arr[idx].id = (uint64_t)(idx+1);
      encl_arr[idx].entry = entry_pc;
      encl_arr[idx].inuse = 1;
      encl_arr[idx].ustack = ustack_top;
+    //  encl_arr[idx].base = base_pa;
+    //  encl_arr[idx].size = size;
+     //encl[idx].entry = ; 
      encl_arr[idx].satp = read_csr(satp),  //null pointer dereference if sent from kernel
+    // encl_arr[idx].satp = satp;
+    //  printm("satp = 0x%x\n", satp);
      printm("entry pc = 0x%x\n", entry_pc);
      encl_arr[idx].state = 0; //new enclave
      encl_arr[idx].data_vma_start = data_vma_start;
@@ -293,63 +449,135 @@ static uintptr_t mcall_load_hash(uint64_t* buf){
      encl_arr[idx].threads[0].prev_csrs.satp = read_csr(satp);  //setting enclave satp
      
       uintptr_t ret = mcall_load_tags(buf, size);
-  
+    //  printm("returning from mcall_create_enclave\n");
      return idx;
   
   }
 
   static uintptr_t mcall_eenter(uintptr_t* k_regs, uint64_t eid, uint8_t* shared_buf, uintptr_t * host_regs){
-    write_csr(sscratch, k_regs[4]);
-    uint64_t satp = read_csr(satp);
-    curr_task = get_current_task_idx(satp); //curr_task should be fetched based on eid
-    encl_arr[curr_task].host_pc = read_csr(sepc);
+    // static void mcall_eenter(uint64_t eid, uint8_t* shared_buf){
+     printm("mcall_eenter\n");
+     asm volatile ("mv %0, sp" : "=r"(host_sp));
+     printm("value in sp:%x\n", host_sp);
+     printm("value in mscratch: %x\n", read_csr(mscratch));
+     printm("tp val from supervisor: %x or %x\n", k_regs[4], k_regs[3]);
+     write_csr(sscratch, k_regs[4]);
+    //  uint64_t satp = read_csr(satp);
+    //  printm("satp = 0x%x\n", satp);
+    // uint64_t satp_enc = encl_arr[curr_task].satp;
+   
+    // printm("satp = 0x%x\n", satp_enc);
+    //  curr_task = get_current_task_idx(satp_enc);
+      // encl_arr[curr_task].return_pc = read_csr(mepc);
+      encl_arr[curr_task].host_pc = read_csr(sepc);
+      printm("curr task: %d\n", curr_task);
     if ( -1 == curr_task) {
        printm("invalid enclave\n");
        return -1;
     }
 
+    
+
+    //return to enclave entry address
+    // write_csr(mepc, encl_arr[curr_task].entry);
     printm("entry pc = 0x%x\n", encl_arr[curr_task].entry);
     printm("host pc = 0x%x\n", encl_arr[curr_task].host_pc);
     
+    //set mpp to U and clear MIE (to disable interrupts in enclave mode)
+    //later on set the TEE bit for isolation
+    // uintptr_t mstatus = read_csr(mstatus);
+    // uintptr_t mpie_from_mie = (mstatus & MSTATUS_MIE) ? MSTATUS_MPIE : 0;
+    // uintptr_t new_mstatus = (mstatus & ~(MSTATUS_MPP | MSTATUS_MPIE | MSTATUS_MIE)) | mpie_from_mie;
+    // write_csr(mstatus, new_mstatus);
+    // write_csr(0x30a, 1);
+    // printm("enter: mepc=%p satp=%016lx mtvec=%p sp=%p\n",
+    //    (void*)read_csr(mepc), read_csr(satp),
+    //    (void*)read_csr(mtvec), (void*)__builtin_frame_address(0));
+    // encl_arr[curr_task].pgd = read_csr(satp);
+    // write_csr(satp, satp_enc);
+    // printm("redirecting trap\n");
+    // asm volatile("sfence.vma x0, x0" ::: "memory");
+     uintptr_t usp = encl_arr[curr_task].ustack & ~0xFULL;  // 16-byte align per ABI
+    //  printm("stack pointer: %x\n", usp);
+     
     return context_switch_to_enclave(k_regs, eid, shared_buf, host_regs);
 
+
+    // printm("sfence done\n");
+    // register uintptr_t cur_sp asm("sp");
+    // uintptr_t t = cur_sp + MACHINE_STACK_SIZE;
+    // t &= ~(uintptr_t)(MACHINE_STACK_SIZE - 1);
+    // t -= MENTRY_FRAME_SIZE;
+    // // // printm("-- BEFORE patch --\n");
+    // // // dump_words((void *)t, MENTRY_FRAME_SIZE);
+    // uintptr_t *tp_slot = (uintptr_t *)(t + (4 * REGBYTES));
+    // write_csr(sscratch, *tp_slot);
+    // asm volatile("mv sp, %0" :: "r"(usp));
+    // asm volatile("mret");
+    // uintptr_t *sp_slot = (uintptr_t *)(t + (2 * REGBYTES));
+    // printm("SP slot addr=%p  before=0x%016lx\n",
+    //        (void *)sp_slot, (unsigned long)*sp_slot);
+    // // *sp_slot = usp;
+
+    // printm("-- AFTER patch --\n");
+    // dump_words((void *)t, MENTRY_FRAME_SIZE);
+    // printm("SP slot addr=%p  after =0x%016lx\n",
+    //        (void *)sp_slot, (unsigned long)*sp_slot);
+    // extern void __redirect_trap();
+    //     __redirect_trap();
+      // return 0;
   }
   
   static void mcall_eexit(uintptr_t * encl_regs){
       write_csr(0x30a, 0);  //disable TEE
       write_csr(0x00b, 0);  //disable DIFT
       write_csr(0x30b, 0);  //disable CFA
-      uint64_t satp = read_csr(satp);
-      curr_task = get_current_task_idx(satp);
       encl_arr[curr_task].state = 0; //stop the enclave
-      encl_arr[curr_task].satp = 0;
-      encl_arr[curr_task].inuse = 0;
       //no need to save return pc
       context_switch_to_host(encl_regs);
+      // set mpp to U -- return to host user process
+      // uintptr_t mstatus = read_csr(mstatus);
+      // uintptr_t new_mstatus = (mstatus & ~(MSTATUS_MPP)) | (1UL << 11);
+      // write_csr(mstatus, new_mstatus);
       uintptr_t mstatus = read_csr(mstatus);
       uintptr_t mpie_from_mie = (mstatus & MSTATUS_MIE) ? MSTATUS_MPIE : 0;
       uintptr_t new_mstatus = (mstatus & ~(MSTATUS_MPP | MSTATUS_MPIE | MSTATUS_MIE)) | mpie_from_mie;
       write_csr(mstatus, new_mstatus);
       write_csr(mepc, encl_arr[0].host_pc + 4);
+      printm("curr task: %d\n", curr_task);
+      printm("return pc = 0x%x\n", encl_arr[0].return_pc);
+      printm("host pc = 0x%x\n", encl_arr[0].host_pc + 4);
+      // write_csr(mepc, encl_arr[0].return_pc);
+      // write_csr(sepc, encl_arr[0].host_pc);
+      // write_csr(satp, encl_arr[curr_task].pgd);
+      printm("eexit: mepc=%p sepc=%016lx\n",(void*)read_csr(mepc), read_csr(sepc));
+      // asm volatile("sfence.vma x0, x0" ::: "memory");
+      printm("returning from eexit\n");
       extern void __redirect_trap();
      __redirect_trap();
   }
 
-  static void mcall_ocall(uintptr_t * encl_regs, uint64_t eid){
+  static void mcall_ocall(uintptr_t * encl_regs){
       write_csr(0x30a, 0);  //disable TEE
       write_csr(0x00b, 0);  //disable DIFT
       write_csr(0x30b, 0);  //disable CFA
-      uint64_t satp = read_csr(satp);
-      curr_task = get_current_task_idx(satp);
+      // set mpp to U -- return to host user process
       encl_arr[curr_task].state = 2; //running : to indicate eenter should return to last pc
       encl_arr[curr_task].return_pc = read_csr(sepc);
+      printm("sepc in ocall: %x\n", read_csr(sepc));
       context_switch_to_host(encl_regs);
-      // set mpp to U -- return to host user process
+      // uintptr_t mstatus = read_csr(mstatus);
+      // uintptr_t new_mstatus = (mstatus & ~(MSTATUS_MPP)) | (1UL << 11); //write mpp to S
+      // write_csr(mstatus, new_mstatus);
       uintptr_t mstatus = read_csr(mstatus);
       uintptr_t mpie_from_mie = (mstatus & MSTATUS_MIE) ? MSTATUS_MPIE : 0;
       uintptr_t new_mstatus = (mstatus & ~(MSTATUS_MPP | MSTATUS_MPIE | MSTATUS_MIE)) | mpie_from_mie;
       write_csr(mstatus, new_mstatus);
-      write_csr(mepc, encl_arr[curr_task].host_pc + 4);
+      write_csr(mepc, encl_arr[0].host_pc + 4);
+      // write_csr(satp, encl_arr[curr_task].pgd);
+      printm("ocall: mepc=%p sepc=%016lx\n",(void*)read_csr(mepc), read_csr(sepc));
+      // asm volatile("sfence.vma x0, x0" ::: "memory");
+      printm("returning from ocall\n");
       extern void __redirect_trap();
      __redirect_trap();
   }
@@ -684,17 +912,23 @@ static void copy_ret(uintptr_t* regs){
 
   // Going towards the application
   void supervisor_to_user_trap(uintptr_t* regs, uintptr_t mcause, uintptr_t mepc){
+    //  printm("s_to_u trap\n");
     cycles1 = read_csr(0xb00);
+      // printm("mepc = 0x%x\n", read_csr(mepc));
     uintptr_t satp = read_csr(satp);
     uintptr_t scause = read_csr(scause);
     curr_task = get_current_task_idx(satp);
+
+  
+    // printm("scause: = %d\n", read_csr(scause));
+    // printm("stval: = %x\n", read_csr(stval));
     if ( -1 != curr_task) {
     if(scause == 8){
       copy_ret(regs);
     }
 
     if(scause == 13 || scause == 15){  //if page fault (scause 12 is for instruction page fault)
-        
+         //res1 = read_csr(0xb00);
          uintptr_t fa = read_csr(stval);              //faulting address
          uint64_t * phy_fa;
          uintptr_t idx = 0;
@@ -724,30 +958,45 @@ static void copy_ret(uintptr_t* regs){
          user_app = read_csr(0x310);
          if(user_app == 1){
           printm("increasing the time\n");
+         //printm("satp:%x\n", satp);
+         //printm("satp_unenc:%d\n", satp_unenc);
+         /*if(satp == satp_unenc)
+            printm("context swiching to unenc\n");*/
+        // flush_cache();
+        /* if(cache_read == 0){
+            count_cachemiss1 = read_csr(0xccb);
+            printm("cache miss at start: %d\n", count_cachemiss1);
+            cache_read = 1;
+         }*/
          uintptr_t mtimecmp_address = 0x2004000; 
          volatile uint64_t *mtimecmp;
          mtimecmp = (volatile uint64_t *)mtimecmp_address;
          *mtimecmp+=200000000;
+        //  *mtimecmp+=5000000;
     }
      
   }
+
+   // printm("s_to_u return\n");
     extern void __redirect_trap();
     return __redirect_trap();
 
   }
 
   // Going towards OS
-  // void user_to_supervisor_trap(uintptr_t* regs, uintptr_t mcause, uintptr_t mepc){
-  void user_to_supervisor_trap(uintptr_t* regs, uint64_t eid){
+  void user_to_supervisor_trap(uintptr_t* regs, uintptr_t mcause, uintptr_t mepc){
      cycles1 = read_csr(0xb00);
+    //  printm("u_to_s trap\n");
     uintptr_t satp = read_csr(satp);
     curr_task = get_current_task_idx(satp);
     uintptr_t scause = read_csr(scause);
     if(scause == 8){
       if(*(regs + 17) == 0x103){
-         mcall_ocall(regs, eid);
+         printm("ocall in sm\n");
+         mcall_ocall(regs);
       }
       else if(*(regs + 17) == 0x102){
+         printm("eexit in sm\n");
          mcall_eexit(regs);
       }
       copy_params(regs);
@@ -755,6 +1004,9 @@ static void copy_ret(uintptr_t* regs){
 
      cycles2 = read_csr(0xb00);
      total_machine_cycles += cycles2 - cycles1;
+    //  printm("u_to_s cycles: %d\n", cycles2-cycles1);
+
+    //  printm("u_to_s return\n");
     extern void __redirect_trap();
     return __redirect_trap();
   }
@@ -871,6 +1123,7 @@ void mcall_trap(uintptr_t* regs, uintptr_t mcause, uintptr_t mepc)
   write_csr(mepc, mepc + 4);
 
   uintptr_t n = regs[17], arg0 = regs[10], arg1 = regs[11], arg2 = regs[12], arg3 = regs[13], arg4 = regs[14], arg5 = regs[15], arg6 = regs[16], retval, ipi_type;
+  // struct pt_regs *uregs = (struct pt_regs*)regs[12];   // a2
      
 
   switch (n)
@@ -916,6 +1169,7 @@ send_ipi:
       break;
 
     case SBI_CREATE_ENCLAVE:
+      printm("sbi create enclave\n");
       retval = mcall_create_enclave((uint8_t *)arg0, arg1, arg2, arg3, arg4, arg5);
       break;
 
@@ -924,9 +1178,10 @@ send_ipi:
       break;
 
     case SBI_EENTER:
+       // Debug:
+      // printm("uregs=0x%016lx\n", (unsigned long)uregs);
       retval = mcall_eenter(regs, arg0, (uint8_t *)arg1, (uintptr_t *) arg2);
-      if (regs[0]) /* preserve a0: a0 contains eid, a1 contains shared_buf */
-        return;
+      // retval = 0;
       break;
 
     case SBI_EEXIT:
@@ -935,7 +1190,7 @@ send_ipi:
       break;
 
     case SBI_OCALL:
-      mcall_ocall(regs, arg0);
+      mcall_ocall(regs);
       retval = 0;
       break;
 
@@ -946,6 +1201,8 @@ send_ipi:
   }
   regs[10] = retval;
 }
+
+
 
 void pmp_trap(uintptr_t* regs, uintptr_t mcause, uintptr_t mepc)
 {

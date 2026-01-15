@@ -118,9 +118,11 @@ static void run_loaded_program(size_t argc, char** argv, uintptr_t kstack_top)
     kassert(shadow_stack_bottom != (uintptr_t)-1);
     size_t shadow_stack_top = shadow_stack_bottom + shadow_stack_size;
 
+    //set_csr(senvcfg, SENVCFG_SSE);
     asm volatile ("csrw %0, %1" :: "I" (CSR_SSP), "r" (shadow_stack_top) : "memory");
   }
 
+  //set_csr(senvcfg, SENVCFG_CBCFE | INSERT_FIELD(0, SENVCFG_CBIE, 1));
 
   // copy phdrs to user stack
   size_t stack_top = current.stack_top - current.phdr_size;
@@ -201,6 +203,8 @@ static void run_loaded_program(size_t argc, char** argv, uintptr_t kstack_top)
   init_tf(&tf, current.entry, stack_top);
   __riscv_flush_icache();
   write_csr(sscratch, kstack_top);
+  //if (zicfilp_enabled)
+   // set_csr(senvcfg, SENVCFG_LPE);
   start_user(&tf);
 }
 
