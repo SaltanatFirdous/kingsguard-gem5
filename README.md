@@ -1,9 +1,62 @@
 # Kingsguard
 
 This repository contains the KingsGuard project for RISC-V, implemented and evaluated using the gem5 simulator.
-
+KingsGuard is a RISC-V TEE design that prevents unauthorized data leakage from enclaves using hardware-assisted information-flow tracking and controlled declassification.
+This repository contains:
+- modified gem5 simulator
+- modified Linux 5.10 kernel
+- modified RISC-V proxy kernel with Security Monitor
+- binary instrumentation tools to add taints and declassification hashes
+- sample host/enclave programs
 ---
 
+## 1. Artifact Overview
+
+### What this artifact demonstrates
+
+This artifact supports the following paper claims:
+
+| Claim | How to reproduce |
+|---|---|
+| KingsGuard runs enclave applications on modified gem5 | Build gem5, Linux, riscv-pk, instrument the application binary and boot full-system simulation |
+| KingsGuard attaches taint and hash metadata to enclave binaries | Run tools/declass and tools/elf-ift |
+| KingsGuard blocks unauthorized direct leakage | Run security demo |
+| KingsGuard supports authorized declassification | Run valid host/enclave path |
+| KingsGuard can run with SassCache | Run riscv-fs-sass.py |
+
+## 2. Repository Layout
+
+```text
+KingsGuard/
+├── gem5/              # Modified gem5 simulator with KingsGuard hardware model
+├── linux/             # Modified Linux 5.10 kernel
+├── riscv-pk/          # Modified RISC-V proxy kernel + Security Monitor
+├── tools/
+│   ├── Partition/     # Example host/enclave application
+│   ├── declass/       # Control-flow path enumeration and ADP hash generation
+│   └── elf-ift/       # ELF preprocessing/tagging tool
+├── scripts/           # Recommended: build/run helper scripts
+├── results/           # Recommended: sample expected outputs/logs
+└── README.md
+```
+## 3. System Requirements
+
+Tested on:
+
+- **OS:** Ubuntu 22.04 LTS
+- **Disk:** 16 GB minimum
+- **RISC-V GNU Toolchain:** `riscv64-unknown-linux-gnu-*`
+- **RISC-V GCC version tested:** GCC 10.2.0
+- **Python:** Python 3.10.12
+- **Python packages:**
+  - `capstone`
+  - `pyelftools`
+
+Install the required Python packages:
+
+```bash
+pip install capstone pyelftools
+```
 ## Repository Contents
 
 ### 1. `tools/Partition/`
