@@ -90,7 +90,7 @@ python3 cf_path_finder.py ../Partition/<enclave_binary> \
 
 Once the paths are generated (e.g., in paths.csv), use the hasher tool to generate cryptographic measurements for each path.
 ```bash
-	./compute_path_hash.sh
+./compute_path_hash.sh
 ```
 
 or
@@ -104,9 +104,10 @@ python3 path_hasher.py paths.csv -o path_hashes.csv
 tools/elf-ift directory contains ELF preprocessing tools using ELFIO that prepare binaries to run under Kingsguard.
 To attach metadata to the compiled binary:
 
-  1. Build the tag tool by running make inside tools/elf-ft directory.
-  2. Run the compiled tag-elf binary by passing the desired binary to be tested with KingsGuard:
- (need to add that hashes need to be manually added, and taints entire data section)
+  1. Add the hash computed in the previous in the tag-elf.cpp at line 62.
+  2. Build the tag tool by running make inside tools/elf-ft directory.
+  3. Run the compiled tag-elf binary by passing the desired binary to be tested with KingsGuard:
+
 ```bash
 cd tools/elf-ift
 make
@@ -114,6 +115,7 @@ make
 ```
 
 This will generate a modified ELF `<enclave_binary.kg>` with required metadata.
+
 
 ---
 ### 4.4 Build Linux Kernel
@@ -167,10 +169,8 @@ Before booting gem5, copy the following files into the RISC-V disk image:
 <host_binary>
 <enclave_binary>.kg
 ```
-Place them inside the guest filesystem, for example:
+Place them inside the guest filesystem, for example inside `/home`.
 
-```text
-/home
 ```
 This can be done by editing the disk image.
 
@@ -251,12 +251,4 @@ cd /root/kingsguard
   ```bash
   ./build/RISCV/gem5.opt configs/example/gem5_library/riscv-fs-sass.py
   ```
-
-
-  
-Inside the configuration script (gem5/configs/example/gem5_library/riscv-fs.py), set the path to kernel and disk image based on your system. The kernel should point to the bbl image generated in riscv-pk and disk image can be set up by following this repo: https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md. The host and enclave binaries should be added to the disk image before booting. Once Linux boots, run the host binary.
-
-
-  ```
-
 
