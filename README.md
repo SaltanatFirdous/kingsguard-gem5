@@ -85,7 +85,9 @@ python3 cf_path_finder.py ../Partition/<enclave_binary> \
     --csv-loops loops.csv
 ```
 -s         : The symbol to start analysis from (default is entry point).
+
 --csv      : Output file for the enumerated paths.
+
 --csv-loops: Output file for detected loop information.
 
 Once the paths are generated (e.g., in paths.csv), use the hasher tool to generate cryptographic measurements for each path.
