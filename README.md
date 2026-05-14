@@ -113,7 +113,7 @@ make
 ./tag-elf ../Partition/<enclave_binary>
 ```
 
-This will generate a modified ELF `<elfname.tag>` with required metadata.
+This will generate a modified ELF `<enclave_binary.kg>` with required metadata.
 
 ---
 ### 4.4 Build Linux Kernel
@@ -151,26 +151,54 @@ This generates the `bbl` image. Use this image as the kernel input in the gem5 d
 
 ---
 ## 5.6. Disk Image Setup
+KingsGuard runs in gem5 full-system mode and requires a RISC-V Linux disk image.
+
+#### Option A: Use a Prebuilt Disk Image
+
+If a prepared disk image is provided with this artifact, set its path in the gem5 configuration file:
+
+```python
+disk_image = "<absolute-path-to-riscv-disk-image>"
+```
 
 Before booting gem5, copy the following files into the RISC-V disk image:
 
 ```text
-host
-<enclave_binary>.tag
+<host_binary>
+<enclave_binary>.kg
 ```
-
 Place them inside the guest filesystem, for example:
 
 ```text
-/root/kingsguard/
+/home
 ```
+This can be done by editing the disk image.
+
+1. Open the disk image in write mode:
+
+   ```bash
+   sudo debugfs -w <absolute-path-to-riscv-disk-image>
+   ```
+2. Inside the debugfs prompt, write files into the disk image:
+   ```bash
+   write <path_to_binary> /home/<binary_name>
+   ```
 
 Then, inside guest Linux, run:
 
 ```bash
-cd /root/kingsguard
+cd /home
 ./host
 ```
+#### Option B: Build or Download a RISC-V Disk Image
+
+If a disk image is not provided, create one using the gem5 RISC-V full-system resources:
+```text
+
+https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md
+```
+
+After creating the disk image, copy the KingsGuard binaries into it explained above.
 
 ---
 ### 5.7 Build gem5
