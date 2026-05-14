@@ -106,7 +106,7 @@ python3 path_hasher.py paths.csv -o path_hashes.csv
 tools/elf-ift directory contains ELF preprocessing tools using ELFIO that prepare binaries to run under Kingsguard.
 To attach metadata to the compiled binary:
 
-  1. Add the hash computed in the previous in the tag-elf.cpp at line 62.
+  1. Add the hash computed in the previous step to tag-elf.cpp at line 62.
   2. Build the tag tool by running make inside tools/elf-ft directory.
   3. Run the compiled tag-elf binary by passing the desired binary to be tested with KingsGuard:
 
