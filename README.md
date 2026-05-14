@@ -236,8 +236,8 @@ cd gem5/util/term
 This terminal displays the kernel boot logs and eventually provides a login console. After Linux boots, login using username: root, password: root, and run the host binary from inside the guest system:
 
 ```bash
-cd /root/kingsguard
-./host
+cd /home
+./<host_binary>
 ```
 ### To run KingsGuard with SassCache implementation:
 
