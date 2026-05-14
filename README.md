@@ -189,7 +189,7 @@ Then, inside guest Linux, run:
 
 ```bash
 cd /home
-./host
+./<host_binary>
 ```
 #### Option B: Build or Download a RISC-V Disk Image
 
