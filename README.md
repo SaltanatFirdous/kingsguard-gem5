@@ -173,7 +173,6 @@ Before booting gem5, copy the following files into the RISC-V disk image:
 ```
 Place them inside the guest filesystem, for example inside `/home`.
 
-```
 This can be done by editing the disk image.
 
 1. Open the disk image in write mode:
