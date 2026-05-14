@@ -124,11 +124,7 @@ make ARCH=riscv CROSS_COMPILE=riscv64-unknown-linux-gnu- defconfig
 make ARCH=riscv CROSS_COMPILE=riscv64-unknown-linux-gnu- all -j$(nproc)
 ```
 
-This generates:
-
-```text
-linux/vmlinux
-```
+This generates `vmlinux`, that should be used as payload to generate the `bbl` image explained below.
 
 ---
 
