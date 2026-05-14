@@ -162,7 +162,7 @@ KingsGuard runs in gem5 full-system mode and requires a RISC-V Linux disk image.
 If a prepared disk image is provided with this artifact, set its path in the gem5 configuration file:
 
 ```python
-disk_image = "<absolute-path-to-riscv-disk-image>"
+disk_image = CustomDiskImageResource("<absolute-path-to-riscv-disk-image>")
 ```
 
 Before booting gem5, copy the following files into the RISC-V disk image:
