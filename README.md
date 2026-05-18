@@ -34,7 +34,7 @@ KingsGuard/
 │   ├── Partition/     # Example host/enclave application
 │   ├── declass/       # Control-flow path enumeration and ADP hash generation
 │   └── elf-ift/       # ELF preprocessing/tagging tool
-├── riscv-disk-image   # Disk image used to boot linux
+├── riscv-disk-img   # Disk image used to boot linux
 └── README.md
 ```
 ## 3. System Requirements
