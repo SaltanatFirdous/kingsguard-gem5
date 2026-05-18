@@ -20,7 +20,6 @@ This artifact supports the following paper claims:
 |---|---|
 | KingsGuard runs enclave applications on modified gem5 | Build gem5, Linux, riscv-pk, instrument the application binary and boot full-system simulation |
 | KingsGuard attaches taint and hash metadata to enclave binaries | Run tools/declass and tools/elf-ift |
-| KingsGuard blocks unauthorized direct leakage | Run security demo |
 | KingsGuard supports authorized declassification | Run valid host/enclave path |
 | KingsGuard can run with SassCache | Run riscv-fs-sass.py |
 
