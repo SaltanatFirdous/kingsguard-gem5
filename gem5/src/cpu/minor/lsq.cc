@@ -1329,6 +1329,8 @@ LSQ::tryToSendToTransfers(LSQRequestPtr request)
                 //         request->data = 0;
                 //         *tag_data = 0;
                 //  }
+                if(declass == 0)
+                  printf("hash mismatch: potential data leak!!!\n");
                 // Attach data to packet
                 tag_pkt->dataDynamic(tag_data); // Critical for write requests
                 tag_pkt->pushSenderState(new TagWriteHandler(
