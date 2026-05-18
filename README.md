@@ -130,7 +130,7 @@ This generates `vmlinux`, that should be used as payload to generate the `bbl` i
 
 ---
 
-### 5.5 Build RISC-V Proxy Kernel
+### 4.5 Build RISC-V Proxy Kernel
 
 ```bash
 cd riscv-pk
@@ -152,7 +152,7 @@ make -j$(nproc)
 This generates the `bbl` image. Use this image as the kernel input in the gem5 dull system configuration script (described later).
 
 ---
-## 5.6. Disk Image Setup
+## 4.6. Disk Image Setup
 KingsGuard runs in gem5 full-system mode and requires a RISC-V Linux disk image.
 
 #### Option A: Use a Prebuilt Disk Image
@@ -192,7 +192,7 @@ If a disk image is not provided, create one using the official [gem5 RISC-V full
 After creating the disk image, copy the KingsGuard binaries into it explained above.
 
 ---
-### 5.7 Build gem5
+### 4.7 Build gem5
 The gem5 directory contains the modified gem5 simulator used to model the Kingsguard architecture.
 To build the gem5 image for KingsGuard:
 ```bash
@@ -202,7 +202,7 @@ scons build/RISCV/gem5.opt -j$(nproc)
 
 ---
 
-## 5.8. Running KingsGuard in gem5
+## 4.8. Running KingsGuard in gem5
 
 Edit the following gem5 configuration script:
 
