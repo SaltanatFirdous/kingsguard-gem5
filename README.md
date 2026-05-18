@@ -194,6 +194,7 @@ After creating the disk image, copy the KingsGuard binaries into it explained ab
 ---
 ### 4.7 Build gem5
 The gem5 directory contains the modified gem5 simulator used to model the Kingsguard architecture.
+Refer to the [official gem5 documentation](https://teams.cloud.microsoft/l/message/48:notes/1779079064381?context=%7B%22contextType%22%3A%22chat%22%2C%22oid%22%3A%228%3Aorgid%3A6161299f-c035-4c78-b318-9a821b060b2d%22%7D) to install the dependencies.
 To build the gem5 image for KingsGuard:
 ```bash
 cd gem5
