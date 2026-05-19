@@ -179,12 +179,6 @@ This can be done by editing the disk image.
    write <path_to_binary> /home/<binary_name>
    ```
 
-Then, inside guest Linux, run:
-
-```bash
-cd /home
-./<host_binary>
-```
 #### Option B: Build or Download a RISC-V Disk Image
 
 If a disk image is not provided, create one using the official [gem5 RISC-V full-system resources](https://gem5.googlesource.com/public/gem5-resources/+/HEAD/src/riscv-fs/README.md).
