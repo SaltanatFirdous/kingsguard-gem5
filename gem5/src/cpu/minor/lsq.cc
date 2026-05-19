@@ -1244,7 +1244,7 @@ LSQ::tryToSendToTransfers(LSQRequestPtr request)
             //if ot[idx] != eid -> illegal access   //TEE access control: need to add ot as an array of registers and replace satp with enclave id
 
             if(prv == 0 && taint == 1){
-                // printf("lets track the taint\n");
+                 //printf("lets track the taint\n");
             Addr data_paddr = request->packet->getAddr();
             Addr memory_base = 0x80200000;  // DRAM base
             Addr shadow_base = 0x80d00000;  // tag memory base
@@ -1261,7 +1261,7 @@ LSQ::tryToSendToTransfers(LSQRequestPtr request)
             uint32_t sdid = tc->readMiscReg(gem5::RiscvISA::MISCREG_SATP);
          if(is_load){
             
-                // printf("load instruction\n");
+                 //printf("load instruction\n");
                 RequestPtr tag_req = std::make_shared<Request>(
                     tag_paddr, 1, 0, cpu.dataRequestorId()); // 1-byte read
                     tag_req->setSassSecurityDomain(sdid);
@@ -1321,16 +1321,21 @@ LSQ::tryToSendToTransfers(LSQRequestPtr request)
                 uint64_t hash1 = tc->readMiscRegNoEffect(gem5::RiscvISA::MISCREG_HASH1);
                 uint64_t hash2 = tc->readMiscRegNoEffect(gem5::RiscvISA::MISCREG_HASH2);
                 uint64_t hash3 = tc->readMiscRegNoEffect(gem5::RiscvISA::MISCREG_HASH3);
-                
-                if(mhash0 == hash0 && mhash1 == hash1 && mhash2 == hash2 && mhash3 == hash3)
+                //printf("mhash0: %x  hash0:%x\n", mhash0, hash0);
+                if(mhash0 == hash0 && mhash1 == hash1 && mhash2 == hash2 && mhash3 == hash3){
                      declass = 1;  //allow declassification
+			//printf("allow declassification\n");
+		}
                 //DIFT store check
                 //  if(tag_val == 1 && ot[idx] != eid && declass == 0){
                 //         request->data = 0;
                 //         *tag_data = 0;
                 //  }
-                if(declass == 0)
+                if(declass == 0){
                   printf("hash mismatch: potential data leak!!!\n");
+		  request->data = 0;
+		  *tag_data = 0;
+		}
                 // Attach data to packet
                 tag_pkt->dataDynamic(tag_data); // Critical for write requests
                 tag_pkt->pushSenderState(new TagWriteHandler(
