@@ -114,7 +114,7 @@ make
 ./tag-elf ../Partition/<enclave_binary>
 ```
 
-This will generate a modified ELF `<enclave_binary.kg>` with required metadata.
+This will generate a modified ELF `<enclave_binary.kg>` with required metadata in tools/Partition folder.
 
 
 ---
