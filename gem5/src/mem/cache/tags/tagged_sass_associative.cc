@@ -74,7 +74,7 @@ TaggedSassAssociative::hash_second_layer(uint64_t scatterindex, unsigned way, ui
     // printf("securityDomain = %x\n", securityDomain);
 
     Addr original = ((Addr)(way & 0xFF) << ((sizeof(Addr) - 1) * 8)) |
-                    (scatterindex & setMask & securityDomain);
+                    (scatterindex & setMask);
 
     for (i = 0; i < 16; i++) {
         p[i] = (original >> (4 * i)) & 0xf;
@@ -130,33 +130,77 @@ TaggedSassAssociative::hash_second_layer(uint64_t scatterindex, unsigned way, ui
 //     return h;
 // }
 
+// std::vector<ReplaceableEntry*>
+// TaggedSassAssociative::getPossibleEntries(const KeyType &key) const
+// {
+//     std::vector<unsigned> scatterlocations;
+//     int ways_per_hash = 64/(index_bits + kCoverageT);
+//     int coverage_set_mask = (1 << (index_bits + kCoverageT)) - 1;
+//     int way = 0;
+//     while ( way < assoc ) {
+//         uint64_t digest = hash_first_layer(key.address, way, key.securityDomain);
+//         for (int ctr = 0; ctr < ways_per_hash
+//             && way < assoc; ++ctr, ++way, digest >>= (index_bits + kCoverageT)) {
+//             // Extract the set index from the digest
+//             unsigned idx = digest & coverage_set_mask;
+//             scatterlocations.push_back(idx);
+//         }
+//     }
+
+//      std::vector<ReplaceableEntry*> locations;
+//     for(way = 0; way < assoc; way++) {
+        
+//         uint64_t digest = hash_second_layer(scatterlocations.at(way), way, key.securityDomain);
+
+//         // Extract the set index from the digest
+//         unsigned idx = digest & setMask;
+    
+//         locations.push_back(getEntry(idx, way));
+//     }
+//     return locations;
+// }
+
 std::vector<ReplaceableEntry*>
 TaggedSassAssociative::getPossibleEntries(const KeyType &key) const
 {
+    /*
+     * gem5 classic coherence identifies a line by physical address and
+     * secure bit. Therefore, the same physical line must always use the
+     * same SASS candidate locations.
+     */
+    constexpr uint64_t placement_domain = 0;
+
     std::vector<unsigned> scatterlocations;
-    int ways_per_hash = 64/(index_bits + kCoverageT);
+    int ways_per_hash = 64 / (index_bits + kCoverageT);
     int coverage_set_mask = (1 << (index_bits + kCoverageT)) - 1;
     int way = 0;
-    while ( way < assoc ) {
-        uint64_t digest = hash_first_layer(key.address, way, key.securityDomain);
-        for (int ctr = 0; ctr < ways_per_hash
-            && way < assoc; ++ctr, ++way, digest >>= (index_bits + kCoverageT)) {
-            // Extract the set index from the digest
+
+    while (way < assoc) {
+        uint64_t digest = hash_first_layer(
+            key.address, way, placement_domain
+        );
+
+        for (int ctr = 0;
+             ctr < ways_per_hash && way < assoc;
+             ++ctr, ++way,
+             digest >>= (index_bits + kCoverageT)) {
             unsigned idx = digest & coverage_set_mask;
             scatterlocations.push_back(idx);
         }
     }
 
-     std::vector<ReplaceableEntry*> locations;
-    for(way = 0; way < assoc; way++) {
-        
-        uint64_t digest = hash_second_layer(scatterlocations.at(way), way, key.securityDomain);
+    std::vector<ReplaceableEntry*> locations;
+    locations.reserve(assoc);
 
-        // Extract the set index from the digest
+    for (way = 0; way < assoc; ++way) {
+        uint64_t digest = hash_second_layer(
+            scatterlocations.at(way), way, placement_domain
+        );
+
         unsigned idx = digest & setMask;
-    
         locations.push_back(getEntry(idx, way));
     }
+
     return locations;
 }
 

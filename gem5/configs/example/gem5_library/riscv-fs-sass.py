@@ -91,8 +91,8 @@ board.set_kernel_disk_workload(
     #    "riscv-bootloader-vmlinux-5.10", resource_version="1.0.0"
     #),
     #disk_image=obtain_resource("riscv-disk-img", resource_version="1.0.0"),
-    kernel = CustomResource("/root/riscv-pk/build/bbl"),
-    disk_image = CustomDiskImageResource("/root/disk-image/riscv-disk-img"
+    kernel = CustomResource("/root/test-artifacts/kingsguard-gem5/riscv-pk/build/bbl"),
+    disk_image = CustomDiskImageResource("/root/test-artifacts/kingsguard-gem5/riscv-disk-img"
     #disk_image = CustomDiskImageResource("/root/riscv64-sample/riscv_disk"
 )
 
