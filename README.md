@@ -42,7 +42,7 @@ KingsGuard/
 Tested on:
 
 - **OS:** Ubuntu 22.04 LTS
-- **Disk:** 16 GB minimum
+- **Disk:** 30 GB minimum
 - **RISC-V GNU Toolchain:** built from source using the official [RISC-V GNU Toolchain](https://github.com/riscv-collab/riscv-gnu-toolchain) repository.
 - **RISC-V GCC version tested:** GCC 10.2.0
 - **Python:** Python 3.10.12
